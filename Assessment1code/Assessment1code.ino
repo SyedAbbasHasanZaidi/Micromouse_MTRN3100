@@ -125,7 +125,10 @@
 #include "Motor.hpp"
 // #include "PIDController.hpp"  // Disabled PID
 #include "Lidar.hpp"
- 
+#include <Wire.h>
+#include "IMUOdometry.hpp"
+#include <MPU6050.h>
+
 #define MOT1PWM 9
 #define MOT1DIR 10
 #define MOT2PWM 11
@@ -138,6 +141,34 @@
 
 #define LIDAR 4
 
+float ax_offset = 0.0;
+float ay_offset = 0.0;
+float gz_offset = 0.0;
+
+MPU6050 imu; 
+
+void calibrateIMU(int samples = 500) {
+    long ax_sum = 0, ay_sum = 0, gz_sum = 0;
+    Serial.println("Calibrating IMU... Keep robot still.");
+    for (int i = 0; i < samples; i++) {
+        int16_t ax, ay, az;
+        int16_t gx, gy, gz;
+        imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+        ax_sum += ax;
+        ay_sum += ay;
+        gz_sum += gz;
+        delay(5);
+    }
+    ax_offset = (ax_sum / (float)samples) / 16384.0;
+    ay_offset = (ay_sum / (float)samples) / 16384.0;
+    gz_offset = (gz_sum / (float)samples) / 131.0;
+
+    Serial.print("ax_offset: "); Serial.println(ax_offset, 4);
+    Serial.print("ay_offset: "); Serial.println(ay_offset, 4);
+    Serial.print("gz_offset: "); Serial.println(gz_offset, 4);
+    Serial.println("Calibration complete.");
+}
+
 // Initialize motors and encoders
 mtrn3100::Motor motor1(MOT1PWM, MOT1DIR);
 mtrn3100::Motor motor2(MOT2PWM, MOT2DIR);
@@ -148,8 +179,11 @@ mtrn3100::Encoder encoder2(EN2A, EN2B);
 // mtrn3100::PIDController pid1(0.7, 0.01, 0.15);
 // mtrn3100::PIDController pid2(0.7, 0.01, 0.15);
 
-// Initialize lidar
+// Initialise lidar
 mtrn3100::Lidar lidar(LIDAR);
+
+// Intialise IMU
+mtrn3100::IMUOdometry imuOdom;
 
 volatile bool objectDetected = false;
 
@@ -175,7 +209,30 @@ void setup() {
   encoder1.count = 0;
   encoder2.count = 0;
 
-  lidar.begin();
+  bool success = lidar.begin();
+  if (success) {
+      Serial.println("LIDAR initialized successfully.");
+  } else {
+      Serial.println("LIDAR initialization failed!");
+      while (true); // halt for debugging
+  }
+
+  Wire.begin();
+
+  imu.initialize();
+
+  if (imu.testConnection()) {
+    Serial.println("IMU connected successfully.");
+  } else {
+    Serial.println("IMU connection failed!");
+    while (true);
+  }
+
+  delay(1000); // Let IMU stabilize
+  calibrateIMU();
+  imuOdom.calibrate(ax_offset, ay_offset, gz_offset);
+
+
 }
 
 // Constants for distance tracking
@@ -222,7 +279,27 @@ void loop() {
     Serial.println("FORWARD");
   }
 
+    int16_t ax, ay, az;
+    int16_t gx, gy, gz;
 
-  delay(10);
+    imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+    float accel_x = ax / 16384.0;
+    float accel_y = ay / 16384.0;
+    float gyro_z_dps = gz / 131.0;
+
+    imuOdom.update(accel_x, accel_y, gyro_z_dps);
+
+    Serial.print("Yaw: ");
+    Serial.print(imuOdom.getYaw());
+    Serial.print(" | X: ");
+    Serial.print(imuOdom.getX());
+    Serial.print(" | Y: ");
+    Serial.println(imuOdom.getY());
+
+    delay(200); // Adjust for readability
 }
 
+
+//arduino-cli compile --fqbn arduino:avr:nano "C:\Users\Admin\Desktop\Micromouse_MTRN3100\Assessment1Code\Assessment1code.ino" 
+//arduino-cli upload -p COM3 --fqbn arduino:avr:nano "C:\Users\Admin\Desktop\Micromouse_MTRN3100\Assessment1Code\Assessment1code.ino"

@@ -10,37 +10,47 @@ class Lidar {
 public:
     explicit Lidar(uint8_t alertPin) : interruptPin(alertPin) {}
 
-    void begin() {
+    bool begin() {
         Wire.begin();
         pinMode(interruptPin, OUTPUT);
         digitalWrite(interruptPin, LOW);
 
         if (!sensor.begin()) {
-            while (true) {
-                Serial.println("Failed to find VL6180X sensor!");
-                delay(1000);
-            }
+            Serial.println("Failed to find VL6180X sensor!");
+            return false;
         }
+
+        Serial.println("VL6180X sensor initialized successfully.");
+        return true;
     }
 
     // Reads distance, triggers alertPin HIGH if below threshold, else LOW
     int readDistanceAndTrigger(int threshold) {
-        int distance = sensor.readRange();
-        if (sensor.readRangeStatus() == VL6180X_ERROR_NONE) {
+        unsigned long start = millis();
+        int distance = -1;
+
+        while (millis() - start < 100) {  // 100 ms timeout
+            distance = sensor.readRange();
+            if (sensor.readRangeStatus() != VL6180X_ERROR_NONE) {
+                delay(1);
+                continue;
+            }
+            break; // got a valid reading
+        }
+
+        if (distance >= 0 && sensor.readRangeStatus() == VL6180X_ERROR_NONE) {
             if (distance < threshold) {
-                digitalWrite(interruptPin, HIGH);  // Object detected - trigger interrupt pin HIGH
+                digitalWrite(interruptPin, HIGH);
             } else {
-                digitalWrite(interruptPin, LOW);   // No object - pin LOW
+                digitalWrite(interruptPin, LOW);
             }
             return distance;
+        } else {
+            digitalWrite(interruptPin, LOW);
+            return -1;
         }
-        digitalWrite(interruptPin, LOW);  // Default LOW if error
-        return -1;
     }
 
-    uint8_t getInterruptPin() const {
-        return interruptPin;
-    }
 
 private:
     Adafruit_VL6180X sensor;
