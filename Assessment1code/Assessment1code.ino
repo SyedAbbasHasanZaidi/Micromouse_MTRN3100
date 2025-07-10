@@ -300,6 +300,45 @@ void loop() {
     delay(200); // Adjust for readability
 }
 
+//subroutine containing solution for task 3.2
+int task32() {
+  
+  // take measurment of gyroscope
+    int16_t ax, ay, az;
+    int16_t gx, gy, gz;
+
+    imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+    float accel_x = ax / 16384.0;
+    float accel_y = ay / 16384.0;
+    float gyro_z_dps = gz / 131.0;
+    
+  imuOdom.update(accel_x, accel_y, gyro_z_dps);
+
+  Serial.print("Gyro: ");
+  Serial.print(gyro_z_dps);
+  Serial.print("  ");
+
+  int rotationDiff = gyro_z_dps - 90;  // pick 90 as the robot should be turned 90 degrees
+  Serial.print("Rotation diff: ");
+  Serial.println(gyro_z_dps);
+
+  if (rotationDiff < -2) {
+    motor1.setPWM(100); // Adjust sign/direction if motors are reversed
+    motor2.setPWM(100);  // Adjust as needed
+  } 
+  else if (rotationDiff > 2) {
+    motor1.setPWM(-100); // Adjust sign/direction if motors are reversed
+    motor2.setPWM(-100);  // Adjust as needed
+  }
+
+
+
+  delay(300); //give program a minuite
+
+  return 0;
+}
+
 
 //arduino-cli compile --fqbn arduino:avr:nano "C:\Users\Admin\Desktop\Micromouse_MTRN3100\Assessment1Code\Assessment1code.ino" 
 //arduino-cli upload -p COM3 --fqbn arduino:avr:nano "C:\Users\Admin\Desktop\Micromouse_MTRN3100\Assessment1Code\Assessment1code.ino"
