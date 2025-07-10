@@ -312,7 +312,7 @@ int task32() {
     float accel_x = ax / 16384.0;
     float accel_y = ay / 16384.0;
     float gyro_z_dps = gz / 131.0;
-    
+
   imuOdom.update(accel_x, accel_y, gyro_z_dps);
 
   Serial.print("Gyro: ");
@@ -331,12 +331,72 @@ int task32() {
     motor1.setPWM(-100); // Adjust sign/direction if motors are reversed
     motor2.setPWM(-100);  // Adjust as needed
   }
-
+  else {
+    //stop motors spinning
+    motor1.setPWM(0);
+    motor2.setPWM(0);
+  }
 
 
   delay(300); //give program a minuite
 
   return 0;
+}
+
+int imuTurn(char dir) {
+// take measurment of gyroscope
+    int16_t ax, ay, az;
+    int16_t gx, gy, gz;
+
+    imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+    float accel_x = ax / 16384.0;
+    float accel_y = ay / 16384.0;
+    float gyro_z_dps = gz / 131.0;
+
+  imuOdom.update(accel_x, accel_y, gyro_z_dps);
+  int change;
+  if (dir == 'l') {
+    change = -90;
+  }
+  else if (dir == 'r') {
+    change = 90;
+  }
+
+  int rotationDiff = gyro_z_dps + change;
+
+  while ((rotationDiff < -3) && (rotationDiff > 3)) {
+
+    if (rotationDiff < -3) {
+    motor1.setPWM(100); // Adjust sign/direction if motors are reversed
+    motor2.setPWM(100);  // Adjust as needed
+    }
+    if (rotationDiff > 3) {
+    motor1.setPWM(-100); // Adjust sign/direction if motors are reversed
+    motor2.setPWM(-100);  // Adjust as needed
+    }
+    //update rotationDiff
+    imuOdom.update(accel_x, accel_y, gyro_z_dps);
+    int rotationDiff = gyro_z_dps + change;
+  }
+  //stop motors spinning
+    motor1.setPWM(0);
+    motor2.setPWM(0);
+
+  return 0;
+}
+int forward() {}
+int backward() {}
+
+int task33() {
+  imuTurn('l');
+  forward();
+  imuTurn('r');
+  forward();
+  forward();
+  imuTurn('l');
+  forward();
+  imuTurn('r');
 }
 
 
