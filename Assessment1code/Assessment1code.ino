@@ -215,7 +215,7 @@ void setup() {
 
   delay(1000); // Let IMU stabilize
   imuOdom.calibrateIMU(imu); 
-  imuOdom.calibrate(ax_offset, ay_offset, gz_offset)
+  imuOdom.calibrate(ax_offset, ay_offset, gz_offset);
 
 }
 
@@ -286,7 +286,7 @@ int task32() {
 
     // Step 1: Perform initial 90° clockwise turn
     if (!hasTurnedInitially) {
-        if (turnToYaw(90)) {
+        if (turnToYaw(-90)) {
             targetYaw = imuOdom.getYaw();  // Store yaw after turn
             hasTurnedInitially = true;
             Serial.print("Initial turn complete. Target yaw: ");
@@ -347,9 +347,6 @@ bool turnToYaw(float targetYaw, int tolerance = 3, int speed = 40) {
         return true;
     }
 }
-
-
-
 
 void loop() {
  task32(); // Run task 31
@@ -413,3 +410,5 @@ int imuTurn(char dir) {
 
 //arduino-cli compile --fqbn arduino:avr:nano "C:\Users\Admin\Documents\UNIVERSITY\MTRN3100\Micromouse_MTRN3100\Assessment1Code\Assessment1code.ino" 
 //arduino-cli upload -p COM3 --fqbn arduino:avr:nano "C:\Users\Admin\Documents\UNIVERSITY\MTRN3100\Micromouse_MTRN3100\Assessment1Code\Assessment1code.ino"
+
+// “left, forward, right, forward, forward, left, forward, right”
