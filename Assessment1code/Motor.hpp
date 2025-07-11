@@ -26,6 +26,22 @@ public:
         analogWrite(pwm_pin, pwm);
     }
 
+    void forward(int16_t pwm) {
+        pwm = constrain(pwm, 0, 255);
+        digitalWrite(dir_pin, HIGH);
+        setPWM(pwm);
+    }
+
+    void reverse(int16_t pwm) {
+        pwm = constrain(pwm, 0, 255);
+        digitalWrite(dir_pin, LOW);
+        setPWM(-pwm);
+    }
+
+    void stop() {
+        setPWM(0);  // Stop the motor
+    }
+
 private:
     const uint8_t pwm_pin;
     const uint8_t dir_pin;

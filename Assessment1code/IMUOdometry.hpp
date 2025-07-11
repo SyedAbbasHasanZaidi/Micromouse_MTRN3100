@@ -1,7 +1,9 @@
+
 #ifndef IMU_ODOMETRY_HPP
 #define IMU_ODOMETRY_HPP
 
 #include <Arduino.h>
+#include <MPU6050.h>
 
 namespace mtrn3100 {
     class IMUOdometry {
@@ -15,6 +17,28 @@ namespace mtrn3100 {
             ax_offset = ax_off;
             ay_offset = ay_off;
             gz_offset = gz_off;
+        }
+
+        void calibrateIMU(MPU6050& imu, int samples = 500) {
+            long ax_sum = 0, ay_sum = 0, gz_sum = 0;
+            Serial.println("Calibrating IMU... Keep robot still.");
+            for (int i = 0; i < samples; i++) {
+                int16_t ax, ay, az;
+                int16_t gx, gy, gz;
+                imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+                ax_sum += ax;
+                ay_sum += ay;
+                gz_sum += gz;
+                delay(5);
+            }
+            ax_offset = (ax_sum / (float)samples) / 16384.0;
+            ay_offset = (ay_sum / (float)samples) / 16384.0;
+            gz_offset = (gz_sum / (float)samples) / 131.0;
+
+            Serial.print("ax_offset: "); Serial.println(ax_offset, 4);
+            Serial.print("ay_offset: "); Serial.println(ay_offset, 4);
+            Serial.print("gz_offset: "); Serial.println(gz_offset, 4);
+            Serial.println("Calibration complete.");
         }
 
         void update(float accel_x, float accel_y, float gyro_z_dps) {
@@ -42,6 +66,9 @@ namespace mtrn3100 {
 
             // Integrate gyro to get yaw (degrees)
             yaw += gyro_z_dps * dt;
+            if (yaw > 180) yaw -= 360;
+            if (yaw < -180) yaw += 360;
+
         }
 
         float getX() const { return x; }

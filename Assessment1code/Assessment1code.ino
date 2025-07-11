@@ -145,8 +145,7 @@ int task31();
 int task32();
 int task33();
 int imuTurn(char dir);
-int forward();
-int backward();
+bool turnToYaw(float targetYaw, int tolerance = 3, int speed = 40);
 
 
 float ax_offset = 0.0;
@@ -154,28 +153,6 @@ float ay_offset = 0.0;
 float gz_offset = 0.0;
 
 MPU6050 imu; 
-
-void calibrateIMU(int samples = 500) {
-    long ax_sum = 0, ay_sum = 0, gz_sum = 0;
-    Serial.println("Calibrating IMU... Keep robot still.");
-    for (int i = 0; i < samples; i++) {
-        int16_t ax, ay, az;
-        int16_t gx, gy, gz;
-        imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-        ax_sum += ax;
-        ay_sum += ay;
-        gz_sum += gz;
-        delay(5);
-    }
-    ax_offset = (ax_sum / (float)samples) / 16384.0;
-    ay_offset = (ay_sum / (float)samples) / 16384.0;
-    gz_offset = (gz_sum / (float)samples) / 131.0;
-
-    Serial.print("ax_offset: "); Serial.println(ax_offset, 4);
-    Serial.print("ay_offset: "); Serial.println(ay_offset, 4);
-    Serial.print("gz_offset: "); Serial.println(gz_offset, 4);
-    Serial.println("Calibration complete.");
-}
 
 // Initialize motors and encoders
 mtrn3100::Motor motor1(MOT1PWM, MOT1DIR);
@@ -237,9 +214,8 @@ void setup() {
   }
 
   delay(1000); // Let IMU stabilize
-  calibrateIMU();
-  imuOdom.calibrate(ax_offset, ay_offset, gz_offset);
-
+  imuOdom.calibrateIMU(imu); 
+  imuOdom.calibrate(ax_offset, ay_offset, gz_offset)
 
 }
 
@@ -249,15 +225,12 @@ const float countsPerRev = 700.0;
 const float cmPerCount = (PI * wheelDiameterCM) / countsPerRev; // ~0.0314 cm
 const float targetDistanceCM = 500;
 const int targetCounts = targetDistanceCM / cmPerCount; // ~6366 counts
-const int obstacleThreshold = 100;  // mm threshold for object detection
-
-void loop() {
-  task32();
-}
-
 
 int task31() {
-    static bool hasMoved = false;
+  static bool hasMoved = false;
+  const int speed = 100; // Speed for motors
+  const int obstacleThreshold = 100;  // mm threshold for object detection
+  const int tolerance = 5; // Tolerance for distance measurement
 
   if (!hasMoved) {
     encoder1.count = 0;
@@ -267,34 +240,78 @@ int task31() {
 
   int distance = lidar.readDistanceAndTrigger(obstacleThreshold);
 
-  if (distance >= 0) { // Valid reading
+  if (distance >= 0) {
     Serial.print("Distance: ");
     Serial.print(distance);
     Serial.println(" mm");
   } 
-  //else {
-  //   Serial.println("Distance reading error");
-  // }
 
-  if (distance <= obstacleThreshold + 5 && distance >= obstacleThreshold - 5 ) {
-    // Object detected, stop motors
-    motor1.setPWM(0);
-    motor2.setPWM(0);
-    Serial.println("Object detected! Motors stopped.");
-  }else if(distance> 0 && distance < obstacleThreshold - 5 ){
-    motor1.setPWM(-100);
-    motor2.setPWM(100);
+  
+  if (distance < 0 || distance > 1000) { // No valid reading — assume nothing is nearby, move forward
+    motor1.forward(speed);
+    motor2.reverse(speed);
+    Serial.println("No object detected — moving FORWARD");
+    return 0;
+  } else if (distance <= obstacleThreshold + 5 && distance >= obstacleThreshold - tolerance) {
+    motor1.stop();
+    motor2.stop();
+    Serial.println("Object within range! STOPPED.");
+  } else if(distance> 0 && distance < obstacleThreshold - tolerance) {
+    motor1.reverse(speed);
+    motor2.forward(speed); 
     Serial.println("REVERSE");
   } else {
-    // No close object, move forward without PID
-    motor1.setPWM(100); // Adjust sign/direction if motors are reversed
-    motor2.setPWM(-100);  // Adjust as needed
+    motor1.forward(speed); 
+    motor2.reverse(speed);
     Serial.println("FORWARD");
   }
+}
 
+bool turnToYaw(float targetYaw, int tolerance = 3, int speed = 40);
+float targetYaw = 0.0;
+bool hasTurnedInitially = false;
+bool wasLifted = false;
+int task32() {
     int16_t ax, ay, az;
     int16_t gx, gy, gz;
+    imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
 
+    float accel_x = ax / 16384.0;
+    float accel_y = ay / 16384.0;
+    float accel_z = az / 16384.0;
+    float gyro_z_dps = gz / 131.0;
+
+    imuOdom.update(accel_x, accel_y, gyro_z_dps);
+    float currentYaw = imuOdom.getYaw();
+
+    // Step 1: Perform initial 90° clockwise turn
+    if (!hasTurnedInitially) {
+        if (turnToYaw(90)) {
+            targetYaw = imuOdom.getYaw();  // Store yaw after turn
+            hasTurnedInitially = true;
+            Serial.print("Initial turn complete. Target yaw: ");
+            Serial.println(targetYaw);
+        }
+        return;
+    }
+
+    // Step 2: Detect lift
+    float accel_mag = sqrt(accel_x * accel_x + accel_y * accel_y + accel_z * accel_z);
+    if (accel_mag < 0.7) {
+        wasLifted = true;
+    }
+
+    // Step 3: Return to target yaw after being placed down
+    if (turnToYaw(targetYaw)) {
+        Serial.println("Returned to original orientation.");
+        wasLifted = false;
+    }
+}
+
+bool turnToYaw(float targetYaw, int tolerance = 3, int speed = 40) {
+    // Read IMU data
+    int16_t ax, ay, az;
+    int16_t gx, gy, gz;
     imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
 
     float accel_x = ax / 16384.0;
@@ -303,64 +320,39 @@ int task31() {
 
     imuOdom.update(accel_x, accel_y, gyro_z_dps);
 
-    Serial.print("Yaw: ");
-    Serial.print(imuOdom.getYaw());
-    Serial.print(" | X: ");
-    Serial.print(imuOdom.getX());
-    Serial.print(" | Y: ");
-    Serial.println(imuOdom.getY());
+    float currentYaw = imuOdom.getYaw();
+    float rotationDiff = currentYaw - targetYaw;
 
-    delay(200); // Adjust for readability
+    // Serial.print("Current Yaw: ");
+    // Serial.print(currentYaw);
+    // Serial.print(" | Target: ");
+    // Serial.print(targetYaw);
+    // Serial.print(" | Diff: ");
+    // Serial.println(rotationDiff);
+
+    if (rotationDiff < -tolerance) {
+        motor1.forward(speed);
+        motor2.forward(speed);
+        //Serial.println("Turning clockwise");
+        return false;
+    } else if (rotationDiff > tolerance) {
+        motor1.reverse(speed);
+        motor2.reverse(speed);
+        //Serial.println("Turning counter-clockwise");
+        return false;
+    } else {
+        motor1.stop();
+        motor2.stop();
+        //Serial.println("Turn complete");
+        return true;
+    }
 }
-//subroutine containing solution for task 3.2
-int runOnce = 1;
-int task32() {
-  
-  // take measurment of gyroscope
-    int16_t ax, ay, az;
-    int16_t gx, gy, gz;
-
-    imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-
-    float accel_x = ax / 16384.0;
-    float accel_y = ay / 16384.0;
-    float gyro_z_dps = gz / 131.0;
-
-  imuOdom.update(accel_x, accel_y, gyro_z_dps);
- 
-  Serial.print("Gyro: ");
-  Serial.print(gyro_z_dps);
-  Serial.print("  ");
 
 
 
-   
-  float rotationDiff = imuOdom.getYaw() - 90;  // pick 90 as the robot should be turned 90 degrees
-  
-  Serial.print("Rotation diff: ");
-  Serial.println(rotationDiff);
 
-
-  if (rotationDiff < -0.5) {
-    motor1.setPWM(40); // Adjust sign/direction if motors are reversed
-    motor2.setPWM(40);  // Adjust as needed
-    Serial.println("smaller");
-    } 
-  else if (rotationDiff > 0.5) {
-    motor1.setPWM(-40); // Adjust sign/direction if motors are reversed
-    motor2.setPWM(-40);  // Adjust as needed
-    Serial.println("bigger");
-  }
-  else {
-    //stop motors spinning
-    motor1.setPWM(0);
-    motor2.setPWM(0);
-    Serial.println("stopped");
-  }
-
-  delay(300); //give program a minuite
-  
-  return 0;
+void loop() {
+ task32(); // Run task 31
 }
 
 int imuTurn(char dir) {
@@ -403,22 +395,21 @@ int imuTurn(char dir) {
     motor1.setPWM(0);
     motor2.setPWM(0);
   }
+  
   return 0;
 }
-int forward() {}
-int backward() {}
 
-int task33() {
-  imuTurn('l');
-  forward();
-  imuTurn('r');
-  forward();
-  forward();
-  imuTurn('l');
-  forward();
-  imuTurn('r');
-}
+// int task33() {
+//   imuTurn('l');
+//   forward();
+//   imuTurn('r');
+//   forward();
+//   forward();
+//   imuTurn('l');
+//   forward();
+//   imuTurn('r');
+// }
 
 
-//arduino-cli compile --fqbn arduino:avr:nano "C:\Users\Admin\Desktop\Micromouse_MTRN3100\Assessment1Code\Assessment1code.ino" 
-//arduino-cli upload -p COM3 --fqbn arduino:avr:nano "C:\Users\Admin\Desktop\Micromouse_MTRN3100\Assessment1Code\Assessment1code.ino"
+//arduino-cli compile --fqbn arduino:avr:nano "C:\Users\Admin\Documents\UNIVERSITY\MTRN3100\Micromouse_MTRN3100\Assessment1Code\Assessment1code.ino" 
+//arduino-cli upload -p COM3 --fqbn arduino:avr:nano "C:\Users\Admin\Documents\UNIVERSITY\MTRN3100\Micromouse_MTRN3100\Assessment1Code\Assessment1code.ino"
