@@ -141,6 +141,14 @@
 
 #define LIDAR 4
 
+int task31();
+int task32();
+int task33();
+int imuTurn(char dir);
+int forward();
+int backward();
+
+
 float ax_offset = 0.0;
 float ay_offset = 0.0;
 float gz_offset = 0.0;
@@ -244,7 +252,12 @@ const int targetCounts = targetDistanceCM / cmPerCount; // ~6366 counts
 const int obstacleThreshold = 100;  // mm threshold for object detection
 
 void loop() {
-  static bool hasMoved = false;
+  task32();
+}
+
+
+int task31() {
+    static bool hasMoved = false;
 
   if (!hasMoved) {
     encoder1.count = 0;
@@ -299,8 +312,8 @@ void loop() {
 
     delay(200); // Adjust for readability
 }
-
 //subroutine containing solution for task 3.2
+int runOnce = 1;
 int task32() {
   
   // take measurment of gyroscope
@@ -314,32 +327,39 @@ int task32() {
     float gyro_z_dps = gz / 131.0;
 
   imuOdom.update(accel_x, accel_y, gyro_z_dps);
-
+ 
   Serial.print("Gyro: ");
   Serial.print(gyro_z_dps);
   Serial.print("  ");
 
-  int rotationDiff = gyro_z_dps - 90;  // pick 90 as the robot should be turned 90 degrees
-  Serial.print("Rotation diff: ");
-  Serial.println(gyro_z_dps);
 
-  if (rotationDiff < -2) {
-    motor1.setPWM(100); // Adjust sign/direction if motors are reversed
-    motor2.setPWM(100);  // Adjust as needed
-  } 
-  else if (rotationDiff > 2) {
-    motor1.setPWM(-100); // Adjust sign/direction if motors are reversed
-    motor2.setPWM(-100);  // Adjust as needed
+
+   
+  float rotationDiff = imuOdom.getYaw() - 90;  // pick 90 as the robot should be turned 90 degrees
+  
+  Serial.print("Rotation diff: ");
+  Serial.println(rotationDiff);
+
+
+  if (rotationDiff < -0.5) {
+    motor1.setPWM(40); // Adjust sign/direction if motors are reversed
+    motor2.setPWM(40);  // Adjust as needed
+    Serial.println("smaller");
+    } 
+  else if (rotationDiff > 0.5) {
+    motor1.setPWM(-40); // Adjust sign/direction if motors are reversed
+    motor2.setPWM(-40);  // Adjust as needed
+    Serial.println("bigger");
   }
   else {
     //stop motors spinning
     motor1.setPWM(0);
     motor2.setPWM(0);
+    Serial.println("stopped");
   }
 
-
   delay(300); //give program a minuite
-
+  
   return 0;
 }
 
@@ -378,11 +398,11 @@ int imuTurn(char dir) {
     //update rotationDiff
     imuOdom.update(accel_x, accel_y, gyro_z_dps);
     int rotationDiff = gyro_z_dps + change;
-  }
+  
   //stop motors spinning
     motor1.setPWM(0);
     motor2.setPWM(0);
-
+  }
   return 0;
 }
 int forward() {}
