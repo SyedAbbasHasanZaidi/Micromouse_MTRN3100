@@ -26,6 +26,15 @@ public:
         return (2 * PI * count / counts_per_revolution);
     }
 
+    float getDistance(float wheel_radius_mm) {
+        return (count / (float)counts_per_revolution) * (2 * PI * wheel_radius_mm); // in mm
+    }
+
+    bool move(float target_distance_mm, float wheel_radius_mm) {
+        long target_counts = (long)((target_distance_mm / (2 * PI * wheel_radius_mm)) * counts_per_revolution);
+        return abs(count) >= abs(target_counts);
+    }
+
 public:
     const uint8_t encoder1_pin;
     const uint8_t encoder2_pin;
