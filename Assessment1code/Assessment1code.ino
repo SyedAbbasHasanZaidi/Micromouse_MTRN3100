@@ -145,7 +145,8 @@ int task31();
 int task32();
 int task33();
 int imuTurn(char dir);
-bool turnToYaw(float targetYaw, int tolerance = 3, int speed = 40);
+bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40);
+
 
 float ax_offset = 0.0;
 float ay_offset = 0.0;
@@ -251,6 +252,7 @@ int task31() {
   return 0;
 }
 
+bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40);
 float targetYaw = 0.0;
 bool hasTurnedInitially = false;
 bool wasLifted = false;
@@ -290,10 +292,11 @@ int task32() {
   return 0;
 }
 
-bool turnToYaw(float targetYaw, int tolerance, int speed) {
-  int16_t ax, ay, az;
-  int16_t gx, gy, gz;
-  imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40) {
+    // Read IMU data
+    int16_t ax, ay, az;
+    int16_t gx, gy, gz;
+    imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
 
   float accel_x = ax / 16384.0;
   float accel_y = ay / 16384.0;

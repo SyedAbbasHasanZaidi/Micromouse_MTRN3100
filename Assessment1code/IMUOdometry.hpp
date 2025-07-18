@@ -1,4 +1,3 @@
-
 #ifndef IMU_ODOMETRY_HPP
 #define IMU_ODOMETRY_HPP
 
@@ -11,7 +10,8 @@ namespace mtrn3100 {
         IMUOdometry()
             : x(0), y(0), vx(0), vy(0), yaw(0),
               ax_offset(0), ay_offset(0), gz_offset(0),
-              lastUpdateTime(millis()) {}
+              lastUpdateTime(millis()),
+              filtered_ax(0), filtered_ay(0) {}
 
         void calibrate(float ax_off, float ay_off, float gz_off) {
             ax_offset = ax_off;
@@ -49,16 +49,22 @@ namespace mtrn3100 {
             // Apply offsets
             accel_x -= ax_offset;
             accel_y -= ay_offset;
+            
             gyro_z_dps -= gz_offset;
 
+            // Low-pass filter (EMA)
+            const float alpha = 0.8; // smoothing factor
+            filtered_ax = alpha * filtered_ax + (1 - alpha) * accel_x;
+            filtered_ay = alpha * filtered_ay + (1 - alpha) * accel_y;
+
             // Threshold to reduce drift
-            if (abs(accel_x) < 0.03) accel_x = 0;
-            if (abs(accel_y) < 0.03) accel_y = 0;
+            if (abs(filtered_ax) < 0.03) filtered_ax = 0;
+            if (abs(filtered_ay) < 0.03) filtered_ay = 0;
             if (abs(gyro_z_dps) < 0.5) gyro_z_dps = 0;
 
             // Integrate acceleration to get velocity
-            vx += accel_x * dt;
-            vy += accel_y * dt;
+            vx += filtered_ax * dt;
+            vy += filtered_ay * dt;
 
             // Integrate velocity to get position
             x += vx * dt;
@@ -68,7 +74,6 @@ namespace mtrn3100 {
             yaw += gyro_z_dps * dt;
             if (yaw > 180) yaw -= 360;
             if (yaw < -180) yaw += 360;
-
         }
 
         float getX() const { return x; }
@@ -81,6 +86,10 @@ namespace mtrn3100 {
         float yaw;
         float ax_offset, ay_offset, gz_offset;
         unsigned long lastUpdateTime;
+
+        // Low-pass filter state
+        float filtered_ax;
+        float filtered_ay;
     };
 }
 
