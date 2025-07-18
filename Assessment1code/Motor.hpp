@@ -13,16 +13,13 @@ public:
     }
 
     void setPWM(int16_t pwm) {
-        // Clamp PWM between -255 and 255
         pwm = constrain(pwm, -255, 255);
-
         if (pwm >= 0) {
-            digitalWrite(dir_pin, HIGH);  // Forward
+            digitalWrite(dir_pin, HIGH);
         } else {
-            digitalWrite(dir_pin, LOW);   // Reverse
-            pwm = -pwm; // Make pwm positive for analogWrite
+            digitalWrite(dir_pin, LOW);
+            pwm = -pwm;
         }
-
         analogWrite(pwm_pin, pwm);
     }
 
@@ -39,7 +36,25 @@ public:
     }
 
     void stop() {
-        setPWM(0);  // Stop the motor
+        setPWM(0);
+    }
+
+    void move(float distance_mm, mtrn3100::Encoder& encoder, int speed = 100, float wheel_radius = 33.0f) {
+        long initialCount = encoder.count;
+        long targetCounts = (long)((abs(distance_mm) / (2 * PI * wheel_radius)) * encoder.counts_per_revolution);
+
+        if (distance_mm >= 0) {
+            forward(speed);
+            while (abs(encoder.count - initialCount) < targetCounts) {
+                // wait until target distance is reached
+            }
+        } else {
+            reverse(speed);
+            while (abs(encoder.count - initialCount) < targetCounts) {
+                // wait until target distance is reached
+            }
+        }
+        stop();
     }
 
 private:
