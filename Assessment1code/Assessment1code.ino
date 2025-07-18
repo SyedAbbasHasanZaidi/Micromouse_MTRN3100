@@ -145,7 +145,7 @@ int task31();
 int task32();
 int task33();
 int imuTurn(char dir);
-bool turnToYaw(float targetYaw, int tolerance = 3, int speed = 40);
+bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40);
 
 
 float ax_offset = 0.0;
@@ -267,7 +267,7 @@ int task31() {
   }
 }
 
-bool turnToYaw(float targetYaw, int tolerance = 3, int speed = 40);
+bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40);
 float targetYaw = 0.0;
 bool hasTurnedInitially = false;
 bool wasLifted = false;
@@ -308,7 +308,7 @@ int task32() {
     }
 }
 
-bool turnToYaw(float targetYaw, int tolerance = 3, int speed = 40) {
+bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40) {
     // Read IMU data
     int16_t ax, ay, az;
     int16_t gx, gy, gz;
