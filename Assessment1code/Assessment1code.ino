@@ -366,7 +366,7 @@ int task33() {
   //   targetYaw = imuOdom.getYaw(); // Set initial heading
   // }
 
-  static String command = "frfl";   // <-- Predefined command string
+  static String command = "lflflfl";   // <-- Predefined command string
   static int currentStep = 0;
   static bool executing = true;         // <-- Start immediately
   static float targetYaw = 0.0;
@@ -381,10 +381,10 @@ int task33() {
         encoder1.count = 0;
         encoder2.count = 0;
 
-        float target_distance_mm = 100.0;
+        float target_distance_mm = 400.0;
 
-        motor1.forward(30);
-        motor2.reverse(30);
+        motor1.forward(70);
+        motor2.reverse(70);
 
         while (!encoder1.move(target_distance_mm, wheelDiameterCM) && !encoder2.move(target_distance_mm, wheelDiameterCM)) {
           encoder1.readEncoder();
@@ -432,7 +432,7 @@ int task33() {
 
 
 void loop() {
-  task32();
+  task33();
 }
 
 

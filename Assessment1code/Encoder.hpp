@@ -13,7 +13,7 @@ public:
     }
 
     void readEncoder() {
-        if (digitalRead(encoder1_pin) == digitalRead(encoder2_pin)) {
+        if (digitalRead(encoder1_pin) > 0 && digitalRead(encoder2_pin) > 0 && digitalRead(encoder1_pin) == digitalRead(encoder2_pin)) {
             count++;
             direction = 1;
         } else {

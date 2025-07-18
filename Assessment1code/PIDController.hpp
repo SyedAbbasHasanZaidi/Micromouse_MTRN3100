@@ -7,13 +7,18 @@ public:
     PIDController(float kp, float ki, float kd)
         : kp(kp), ki(ki), kd(kd), prev_error(0), integral(0) {}
 
-    float compute(float target, float current) {
+    float compute(float target, float current, float dt) {
         float error = target - current;
-        integral += error;
-        float derivative = error - prev_error;
+        integral += error * dt;
+        float derivative = (error - prev_error) / dt;
         prev_error = error;
 
         return kp * error + ki * integral + kd * derivative;
+    }
+    
+    void reset() {
+        integral = 0.0f;
+        prev_error = 0.0f;
     }
 
 private:
