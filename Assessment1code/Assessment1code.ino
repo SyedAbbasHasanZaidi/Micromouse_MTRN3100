@@ -350,33 +350,33 @@ bool turnToYaw(float targetYaw, int tolerance = 3, int speed = 40) {
 
 void loop() {
 
-  while (true) {
-    unsigned long now = millis();
+ while (true) {
+  unsigned long start_time = millis();
 
-    while (now < 5000) {
-      motor1.forward(100);
-      motor2.reverse(100);
-      int16_t ax, ay, az;
-      int16_t gx, gy, gz;
-      imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+  while (millis() - start_time < 5000) {
+    motor1.forward(100);
+    motor2.reverse(100);
 
+    int16_t ax, ay, az;
+    int16_t gx, gy, gz;
+    imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
 
-      float accel_x = ax / 16384.0;
-      float accel_y = ay / 16384.0;
-      float gyro_z_dps = gz / 131.0;
+    float accel_x = ax / 16384.0;
+    float accel_y = ay / 16384.0;
+    float gyro_z_dps = gz / 131.0;
 
-      Serial.print(now);
-      Serial.print(" ");
-      Serial.println(accel_x);
+    Serial.print(millis() - start_time);
+    Serial.print(" ");
+    Serial.println(accel_x);
 
-      delay(20);
-
-    }
-    if (now > 5000) {
-      motor1.stop();
-      motor2.stop();
-    }
+    delay(20);
   }
+
+  motor1.stop();
+  motor2.stop();
+
+  while (true); // Stop here permanently or add logic to restart if needed
+}
 
 }
 
