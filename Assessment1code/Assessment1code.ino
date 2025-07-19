@@ -349,7 +349,34 @@ bool turnToYaw(float targetYaw, int tolerance = 3, int speed = 40) {
 }
 
 void loop() {
- task32(); // Run task 31
+
+
+    unsigned long now = millis();
+
+    while (now < 5000) {
+      motor1.forward(100);
+      motor2.reverse(100);
+      int16_t ax, ay, az;
+      int16_t gx, gy, gz;
+      imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+
+      float accel_x = ax / 16384.0;
+      float accel_y = ay / 16384.0;
+      float gyro_z_dps = gz / 131.0;
+
+      Serial.print(now);
+      Serial.print(" ");
+      Serial.println(accel_x);
+
+      delay(20);
+
+    }
+    if (now > 5000) {
+      motor1.stop();
+      motor2.stop();
+    }
+
 }
 
 int imuTurn(char dir) {
