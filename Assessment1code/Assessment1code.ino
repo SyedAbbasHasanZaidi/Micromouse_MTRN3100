@@ -350,7 +350,7 @@ bool turnToYaw(float targetYaw, int tolerance = 3, int speed = 40) {
 
 void loop() {
 
-
+  while (true) {
     unsigned long now = millis();
 
     while (now < 5000) {
@@ -376,6 +376,7 @@ void loop() {
       motor1.stop();
       motor2.stop();
     }
+  }
 
 }
 
