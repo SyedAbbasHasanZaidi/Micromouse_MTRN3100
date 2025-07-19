@@ -12,7 +12,17 @@ public:
         pinMode(dir_pin, OUTPUT);
     }
 
-    void setPWM(uint8_t pwm) {
+    void setPWM(int16_t pwm) {
+        // Clamp PWM between -255 and 255
+        pwm = constrain(pwm, -255, 255);
+
+        if (pwm >= 0) {
+            digitalWrite(dir_pin, HIGH);  // Forward
+        } else {
+            digitalWrite(dir_pin, LOW);   // Reverse
+            pwm = -pwm; // Make pwm positive for analogWrite
+        }
+
         analogWrite(pwm_pin, pwm);
     }
 
@@ -25,32 +35,12 @@ public:
     void reverse(int16_t pwm) {
         pwm = constrain(pwm, 0, 255);
         digitalWrite(dir_pin, LOW);
-        setPWM(pwm);
-    }       
+        setPWM(-pwm);
+    }
 
     void stop() {
-        setPWM(0);
+        setPWM(0);  // Stop the motor
     }
-
-    void move(float distance_mm, mtrn3100::Encoder& encoder, int speed = 100, float wheel_radius = 3.55) {
-        long initialCount = encoder.count;
-        long targetCounts = (long)((abs(distance_mm) / (2 * PI * wheel_radius)) * encoder.counts_per_revolution);
-
-        if (distance_mm >= 0) {
-            forward(speed);
-            while (abs(encoder.count - initialCount) < targetCounts) {
-                // wait until target distance is reached
-            }
-        } else {
-            reverse(speed);
-            while (abs(encoder.count - initialCount) < targetCounts) {
-                // wait until target distance is reached
-            }
-        }
-        stop();
-    }
-
-
 
 private:
     const uint8_t pwm_pin;
