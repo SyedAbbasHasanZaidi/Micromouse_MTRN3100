@@ -228,7 +228,7 @@ const int targetCounts = targetDistanceCM / cmPerCount; // ~6366 counts
 
 int task31() {
   static bool hasMoved = false;
-  const int speed = 100; // Speed for motors
+  const int speed = 65; // Speed for motors
   const int obstacleThreshold = 100;  // mm threshold for object detection
   const int tolerance = 5; // Tolerance for distance measurement
 
@@ -349,7 +349,9 @@ bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40) {
 }
 
 void loop() {
- task32(); // Run task 31
+ Serial.println(encoder1.readEncoder())
+ Serial.println()
+ task31(); // Run task 31
 }
 
 int imuTurn(char dir) {
