@@ -366,10 +366,10 @@ int task33() {
   //   targetYaw = imuOdom.getYaw(); // Set initial heading
   // }
 
-  static String command = "lflflfl";   // <-- Predefined command string
+  static String command = "flfrflfrs";   // <-- s for stop
   static int currentStep = 0;
   static bool executing = true;         // <-- Start immediately
-  static float targetYaw = 0.0;
+  static float targetYaw = imuOdom.getYaw(); // Initial heading
 
   if (executing && currentStep < command.length()) {
     char action = command[currentStep];
@@ -399,16 +399,26 @@ int task33() {
       case 'l': {
         Serial.println("Action: LEFT TURN");
         targetYaw -= 90;
-        while(!turnToYaw(targetYaw));
+        while(!turnToYaw(targetYaw, 1 , 30));
         Serial.print("Left turn completed");
         break;
       }
 
       case 'r': {
         Serial.println("Action: RIGHT TURN");
-        targetYaw += 90;\
-        while(!turnToYaw(targetYaw));
+        targetYaw += 90;
+        while(!turnToYaw(targetYaw, 1 , 30));
         Serial.print(" turn completed");
+        break;
+      }
+      
+      
+      case 's': {
+        Serial.println("Action: STOP");
+        motor1.stop();
+        motor2.stop();
+        executing = false;
+        command = "";
         break;
       }
 
