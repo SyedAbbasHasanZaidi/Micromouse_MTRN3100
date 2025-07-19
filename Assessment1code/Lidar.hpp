@@ -9,7 +9,6 @@ namespace mtrn3100 {
 class Lidar {
 public:
     explicit Lidar(uint8_t alertPin) : interruptPin(alertPin) {}
-
     bool begin() {
         Wire.begin();
         pinMode(interruptPin, OUTPUT);
