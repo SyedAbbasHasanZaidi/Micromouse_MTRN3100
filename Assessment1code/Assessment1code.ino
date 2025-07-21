@@ -123,7 +123,7 @@
 
 #include "Encoder.hpp"
 #include "Motor.hpp"
-// #include "PIDController.hpp"  // Disabled PID
+#include "PIDController.hpp"  // Disabled PID
 #include "Lidar.hpp"
 #include <Wire.h>
 #include "IMUOdometry.hpp"
@@ -157,9 +157,11 @@ MPU6050 imu;
 // Initialize motors and encoders
 mtrn3100::Motor motor1(MOT1PWM, MOT1DIR);
 mtrn3100::Motor motor2(MOT2PWM, MOT2DIR);
-mtrn3100::Encoder encoder1(EN1A, EN1B);
-mtrn3100::Encoder encoder2(EN2A, EN2B);
+mtrn3100::Encoder encoder1(EN1A, EN1B,1400);
+mtrn3100::Encoder encoder2(EN2A, EN2B,1400);
 
+//mtrn3100::PIDController pid(2,0.3,0.05);
+mtrn3100::PIDController pid(1,0.1,0.05);
 // Initialise lidar
 mtrn3100::Lidar lidar(LIDAR);
 
@@ -173,12 +175,25 @@ void lidarISR() {
   objectDetected = true;
 }
 
+// Encoder interrupt service routines
+void encoder1ISR() {
+  encoder1.readEncoder();
+}
+void encoder2ISR() {
+  encoder2.readEncoder();
+}
+
 void setup() {
   Serial.begin(9600);
+  attachInterrupt(digitalPinToInterrupt(EN1A), encoder1ISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(EN2A), encoder2ISR, CHANGE);
+
   attachInterrupt(digitalPinToInterrupt(LIDAR), lidarISR, RISING);
 
   encoder1.count = 0;
   encoder2.count = 0;
+
+  
 
   bool success = lidar.begin();
   if (success) {
@@ -201,6 +216,15 @@ void setup() {
   delay(1000);
   imuOdom.calibrateIMU(imu);
   imuOdom.calibrate(ax_offset, ay_offset, gz_offset);
+
+  // Reset encoder counts
+  encoder1.count = 0;
+  encoder2.count = 0;
+
+  
+int basePWM = 100;
+motor1.forward(basePWM);
+motor2.reverse(basePWM); // assuming both forward now for same direction
 }
 
 // Constants for distance tracking
@@ -209,6 +233,7 @@ const float countsPerRev = 700.0;
 const float cmPerCount = (PI * wheelDiameterCM) / countsPerRev; // ~0.0314 cm
 const float targetDistanceCM = 2000;
 const int targetCounts = targetDistanceCM / cmPerCount; // ~6366 counts
+
 
 
 int task31() {
@@ -253,6 +278,7 @@ int task31() {
 }
 
 bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40);
+
 float targetYaw = 0.0;
 bool hasTurnedInitially = false;
 bool wasLifted = false;
@@ -439,11 +465,279 @@ int task33() {
   return 0;
 }
 
+// void balanceMotorsWithPID() {
+//     int basePWM = 50;
+//     int pwmLeft = basePWM;
+//     int pwmRight = basePWM;
 
+//     static unsigned long prevTime = 0;
+//     static long prevLeftCount = 0;
+//     static long prevRightCount = 0;
+
+//     unsigned long now = millis();
+//     float dt = (now - prevTime) / 1000.0f;
+
+//     if (dt < 0.02f) return; // run every ~50ms
+
+//     long leftCount = encoder1.getCount();
+//     long rightCount = - 1*encoder2.getCount();
+
+//     long deltaLeft = leftCount - prevLeftCount;
+//     long deltaRight = rightCount - prevRightCount;
+
+//     float error = deltaLeft - deltaRight;
+//     static float smoothedError = 0;
+//     const float alpha = 0.4;  // smoothing factor (0.1–0.5 good range)
+//     smoothedError = alpha * error + (1 - alpha) * smoothedError;
+
+//     float correction = pid.compute(0, smoothedError, dt);  // target is 0 error
+//     // correction = constrain(correction, -40, 40);
+
+//     if (abs(correction) < 2) correction = 0;
+
+//     // Asymmetric but PHYSICALLY CORRECT approach
+//   if (error > 0) {  // Left is leading
+//       pwmLeft = basePWM - abs(correction);  // Slow down left
+//       pwmRight = basePWM;                   // Maintain right
+//   } 
+//   else if (error < 0) {  // Right is leading
+//       pwmLeft = basePWM;                   // Maintain left
+//       pwmRight = basePWM - abs(correction);  // Slow down right
+//   } 
+//   else {
+//       pwmLeft = basePWM;
+//       pwmRight = basePWM;
+//   }
+
+// // Apply constraints
+// // pwmLeft = constrain(pwmLeft, 120, 180);
+// // pwmRight = constrain(pwmRight, 120, 180);
+
+//     motor1.setPWM(pwmLeft);   // just sets PWM (forwards only)
+//     motor2.setPWM(pwmRight); // just sets PWM (forwards only)
+
+//     prevTime = now;
+//     prevLeftCount = leftCount;
+//     prevRightCount = rightCount;
+// }
+
+void balanceMotorsWithPID() {
+    int basePWM = 100;
+    int pwmLeft = basePWM;
+    int pwmRight = basePWM;
+
+    static unsigned long prevTime = 0;
+    static long prevLeftCount = 0;
+    static long prevRightCount = 0;
+
+    unsigned long now = millis();
+    float dt = (now - prevTime) / 1000.0f;
+
+    if (dt < 0.02f) return; // run every ~50ms
+    prevTime = now;
+
+    long leftCount = encoder1.getCount();
+    long rightCount = -encoder2.getCount();
+
+    long deltaLeft = leftCount - prevLeftCount;
+    long deltaRight = rightCount - prevRightCount;
+
+    prevLeftCount = leftCount;
+    prevRightCount = rightCount;
+
+    float error = deltaLeft - deltaRight;
+    static float smoothedError = 0;
+    const float alpha = 0.1f;  // more smoothing
+    smoothedError = alpha * error + (1 - alpha) * smoothedError;
+
+    float correction = pid.compute(0, smoothedError, dt);  // target 0 error
+
+    if (correction > 0) {  // Left motor is leading
+        pwmLeft = basePWM - abs(correction);
+        pwmRight = basePWM + abs(correction) * 0.5f;  // small boost on right
+    } else if (correction < 0) {  // Right motor is leading
+        pwmLeft = basePWM + abs(correction) * 0.5f;   // small boost on left
+        pwmRight = basePWM - abs(correction);
+    } else {
+        pwmLeft = basePWM;
+        pwmRight = basePWM;
+    }
+
+    // Clamp PWM values to valid range (0-255)
+    pwmLeft = constrain(pwmLeft, 0, 255);
+    pwmRight = constrain(pwmRight, 0, 255);
+
+    // Set motor PWM outputs here
+  motor1.setPWM(pwmLeft);
+  motor2.setPWM(pwmRight);
+}
+
+
+// long startLeftCount = 0;
+// long startRightCount = 0;
+// float integralCumulativePosition = 0;
+// float derivative_error = 0;
+// float prev_error = 0;
+
+// void balanceMotorsWithPID() {
+//   const int basePWM = 150;
+//   static unsigned long prevTime = 0;
+//   static long prevLeftCount = 0;
+//   static long prevRightCount = 0;
+
+//   // Timing control (20ms interval)
+//   if (millis() - prevTime < 20) return;
+
+//   encoder1.readEncoder();
+//   encoder2.readEncoder();
+//   long leftCount = encoder1.count;
+//   long rightCount = -encoder2.count;  // Invert right encoder
+
+//   // Cap max delta to prevent spikes from encoder glitches
+//   long maxTickJump = 50;
+//   long leftDelta = constrain(leftCount - prevLeftCount, -maxTickJump, maxTickJump);
+//   long rightDelta = constrain(rightCount - prevRightCount, -maxTickJump, maxTickJump);
+
+//   // Calculate raw errors
+//   long rawPositionError = (leftCount - startLeftCount) - (rightCount - startRightCount);
+//   long rawSpeedError = leftDelta - rightDelta;
+
+//   // Low-pass filtering (Exponential Moving Average)
+//   static float filteredPositionError = 0;
+//   static float filteredSpeedError = 0;
+//   const float alpha = 0.5;  // Smoothing factor
+
+//   filteredPositionError = alpha * rawPositionError + (1 - alpha) * filteredPositionError;
+//   filteredSpeedError = alpha * rawSpeedError + (1 - alpha) * filteredSpeedError;
+
+//   // Compute PID correction
+//   float dt = (millis() - prevTime) / 1000.0f;
+
+//   integralCumulativePosition = constrain(integralCumulativePosition + filteredPositionError * dt, -1000, 1000);
+
+//   const float Kp_pos = 1;
+//   const float Ki_pos = 1;
+//   const float Kd_pos =1;
+
+//   static float prev_error = 0;
+//   float derivative_error = (filteredPositionError - prev_error) / dt;
+//   prev_error = filteredPositionError;
+
+//   float correction = (Kp_pos * filteredPositionError) +
+//                      (Ki_pos * integralCumulativePosition) +
+//                      (Kd_pos * derivative_error);
+
+//   // Apply deadband
+//   if (abs(correction) < 3) correction = 0;
+
+//   // ASYMMETRIC CORRECTION (Slows down leading wheel)
+//   int pwmLeft, pwmRight;
+
+//   if (filteredPositionError > 0) {  // Left is leading
+//     pwmLeft = basePWM - abs(correction);
+//     pwmRight = basePWM + abs(correction);
+//   } else if (filteredPositionError < 0) {  // Right is leading
+//     pwmLeft = basePWM + abs(correction);
+//     pwmRight = basePWM - abs(correction);
+//   } else {
+//     pwmLeft = basePWM;
+//     pwmRight = basePWM;
+//   }
+
+//   // Apply PWM constraints
+//   pwmLeft = constrain(pwmLeft, 120, 180);
+//   pwmRight = constrain(pwmRight, 120, 180);
+
+//   // Drive motors
+//   motor1.setPWM(pwmLeft);
+//   motor2.setPWM(pwmRight);
+
+//   // Update previous values
+//   prevTime = millis();
+//   prevLeftCount = leftCount;
+//   prevRightCount = rightCount;
+// }
+
+
+
+
+int starttime = millis();
+// void loop() {
+//   float target_distance_cm = 180.0;
+//   int targetCountsLeft = target_distance_cm / (3.55) * encoder1.counts_per_revolution;
+//   int targetCountsRight = target_distance_cm / (3.55) * encoder2.counts_per_revolution;
+
+//   encoder1.readEncoder();
+//   encoder2.readEncoder();
+
+//   long leftCount = encoder1.count;
+//   long rightCount = -encoder2.count;
+
+//   Serial.print("timestamp: ");
+//   Serial.print(starttime + millis());
+//   Serial.print(" |Left Count: ");
+//   Serial.print(leftCount);
+//   Serial.print(" | Right Count: ");
+//   Serial.print(rightCount);
+//   Serial.print(" | Diff: ");
+//   Serial.println(leftCount - rightCount);  // Corrected diff
+
+//   // long leftTravel = leftCount - startLeftCount;
+//   // long rightTravel = rightCount - startRightCount;
+
+//   balanceMotorsWithPID();  // Uncomment when needed
+// }
 
 void loop() {
-  task33();
+  float target_distance_cm = 180.0;
+  int targetCountsLeft = target_distance_cm / (3.55) * encoder1.counts_per_revolution;
+  int targetCountsRight = target_distance_cm / (3.55) * encoder2.counts_per_revolution;
+
+  encoder1.readEncoder();
+  encoder2.readEncoder();
+
+  long leftCount = encoder1.count;
+  long rightCount = -encoder2.count;
+
+  Serial.print("timestamp: ");
+  Serial.print(starttime + millis());
+  Serial.print(" | Left Count: ");
+  Serial.print(leftCount);
+  Serial.print(" | Right Count: ");
+  Serial.print(rightCount);
+  Serial.print(" | Diff: ");
+  Serial.println(leftCount - rightCount);
+
+  // Check if target reached
+  if (leftCount >= targetCountsLeft && rightCount >= targetCountsRight) {
+    // Target reached — stop motors
+    motor1.stop();
+    motor2.stop();
+  } else {
+    // Not yet reached — run PID balancing
+    balanceMotorsWithPID();
+  }
 }
+
+
+
+
+  // Balance motor speed using PID
+  //balanceMotorsWithPID();
+
+
+// void loop() {
+//   encoder1.readEncoder();
+//   encoder2.readEncoder();
+
+//   Serial.print("Left Encoder Count: ");
+//   Serial.print(encoder1.count);
+//   Serial.print(" | Right Encoder Count: ");
+//   Serial.println(encoder2.count);
+
+//   delay(100); // print every 100ms
+// }
+
 
 
 
