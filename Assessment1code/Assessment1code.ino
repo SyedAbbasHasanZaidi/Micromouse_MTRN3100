@@ -271,7 +271,7 @@ int task32() {
 }
 
 int task33() {
-  static String command = "frfrfrfs";   // <-- s for stop flfrflfrs
+  static String command = "frs";   // <-- s for stop flfrflfrs
   static int currentStep = 0;
   static bool executing = true;         // <-- Start immediately
   static float targetYaw;                // Initial heading
