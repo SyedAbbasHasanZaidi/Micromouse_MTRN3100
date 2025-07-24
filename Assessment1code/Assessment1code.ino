@@ -28,6 +28,7 @@ float ax_offset = 0.0;
 float ay_offset = 0.0;
 float gz_offset = 0.0;
 int basePWM = 100;
+int baseTurnPWM = 50;
 int leftPWM = basePWM;
 int rightPWM = basePWM;
 const float wheelDiameterCM = 3.55;
@@ -176,7 +177,7 @@ void balanceMotorsWithPID(bool isForward) {
 }
 
 void balanceTurningWithPID(bool turnLeft) {
-    int basePWM = 100;
+    int baseTurnPWM = 40;
     int pwmLeft = basePWM;
     int pwmRight = basePWM;
 
@@ -208,11 +209,11 @@ void balanceTurningWithPID(bool turnLeft) {
     float correction = pid.compute(0, smoothedError, dt);
 
     if (correction > 0) {
-        pwmLeft = basePWM - abs(correction);
-        pwmRight = basePWM + abs(correction) * 0.5f;
+        pwmLeft = baseTurnPWM - abs(correction);
+        pwmRight = baseTurnPWM + abs(correction) * 0.5f;
     } else if (correction < 0) {
-        pwmLeft = basePWM + abs(correction) * 0.5f;
-        pwmRight = basePWM - abs(correction);
+        pwmLeft = baseTurnPWM + abs(correction) * 0.5f;
+        pwmRight = baseTurnPWM - abs(correction);
     }
 
     pwmLeft = constrain(pwmLeft, 0, 255);
@@ -326,7 +327,7 @@ int task32() {
 }
 
 int task33() {
-  static String command = "frs";   // <-- s for stop flfrflfrs
+  static String command = "flflflfls";   // <-- s for stop flfrflfrs
   static int currentStep = 0;
   static bool executing = true;         // <-- Start immediately
   static float targetYaw;                // Initial heading
