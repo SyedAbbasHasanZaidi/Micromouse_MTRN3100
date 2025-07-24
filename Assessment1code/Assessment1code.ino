@@ -175,6 +175,58 @@ void balanceMotorsWithPID(bool isForward) {
     }
 }
 
+void balanceTurningWithPID(bool turnLeft) {
+    int basePWM = 100;
+    int pwmLeft = basePWM;
+    int pwmRight = basePWM;
+
+    static unsigned long prevTime = 0;
+    static long prevLeftCount = 0;
+    static long prevRightCount = 0;
+
+    unsigned long now = millis();
+    float dt = (now - prevTime) / 1000.0f;
+    if (dt < 0.02f) return;
+    prevTime = now;
+
+    long leftCount = abs(encoder1.getCount());
+    long rightCount = abs(-encoder2.getCount());
+
+    long deltaLeft = leftCount - prevLeftCount;
+    long deltaRight = rightCount - prevRightCount;
+
+    prevLeftCount = leftCount;
+    prevRightCount = rightCount;
+
+    float error = deltaLeft - deltaRight;
+
+    static float smoothedError = 0;
+    const float alpha = 0.1f;
+    smoothedError = alpha * error + (1 - alpha) * smoothedError;
+
+    float correction = pid.compute(0, smoothedError, dt);
+
+    if (correction > 0) {
+        pwmLeft = basePWM - abs(correction);
+        pwmRight = basePWM + abs(correction) * 0.5f;
+    } else if (correction < 0) {
+        pwmLeft = basePWM + abs(correction) * 0.5f;
+        pwmRight = basePWM - abs(correction);
+    }
+
+    pwmLeft = constrain(pwmLeft, 0, 255);
+    pwmRight = constrain(pwmRight, 0, 255);
+
+    // Use direction flag
+    if (turnLeft) {
+        motor1.reverse(pwmLeft);
+        motor2.reverse(pwmRight);
+    } else {
+        motor1.forward(pwmLeft);
+        motor2.forward(pwmRight);
+    }
+}
+
 void setState(bool mforward, bool mReverse, bool mTurnLeft, bool mTurnRight, bool mStop){
   forward= mforward;
   reverse= mReverse;
@@ -398,16 +450,10 @@ void loop() {
   if(forward || reverse){
     balanceMotorsWithPID(forward);  
   }
-
-  else if(turnRight){
-    motor1.forward(basePWM);
-    motor2.forward(basePWM);
+  if (turnLeft || turnRight) {
+    balanceTurningWithPID(turnLeft);
   }
 
-  else if(turnLeft){
-    motor1.reverse(basePWM);
-    motor2.reverse(basePWM);
-  }
 
   else{
     motor1.stop();
