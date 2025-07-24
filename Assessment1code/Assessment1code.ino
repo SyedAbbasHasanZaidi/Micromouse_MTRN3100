@@ -189,8 +189,8 @@ void balanceTurningWithPID(bool turnLeft) {
     if (dt < 0.02f) return;
     prevTime = now;
 
-    long leftCount = abs(encoder1.getCount());
-    long rightCount = abs(-encoder2.getCount());
+    long leftCount = encoder1.getCount();
+    long rightCount = -encoder2.getCount();
 
     long deltaLeft = leftCount - prevLeftCount;
     long deltaRight = rightCount - prevRightCount;
@@ -198,7 +198,8 @@ void balanceTurningWithPID(bool turnLeft) {
     prevLeftCount = leftCount;
     prevRightCount = rightCount;
 
-    float error = deltaLeft - deltaRight;
+    // For turning: want deltaLeft + deltaRight = 0
+    float error = deltaLeft + deltaRight;
 
     static float smoothedError = 0;
     const float alpha = 0.1f;
@@ -217,15 +218,17 @@ void balanceTurningWithPID(bool turnLeft) {
     pwmLeft = constrain(pwmLeft, 0, 255);
     pwmRight = constrain(pwmRight, 0, 255);
 
-    // Use direction flag
     if (turnLeft) {
+        // Left wheel backward, right wheel forward
         motor1.reverse(pwmLeft);
         motor2.reverse(pwmRight);
     } else {
+        // Left wheel forward, right wheel backward
         motor1.forward(pwmLeft);
         motor2.forward(pwmRight);
     }
 }
+
 
 void setState(bool mforward, bool mReverse, bool mTurnLeft, bool mTurnRight, bool mStop){
   forward= mforward;
@@ -449,8 +452,7 @@ void loop() {
   task33();
   if(forward || reverse){
     balanceMotorsWithPID(forward);  
-  }
-  if (turnLeft || turnRight) {
+  } else if (turnLeft || turnRight) {
     balanceTurningWithPID(turnLeft);
   }
 
