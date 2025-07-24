@@ -1,129 +1,6 @@
-// #include "Encoder.hpp"
-// #include "Motor.hpp"
-// #include "PIDController.hpp"
-// #include "Lidar.hpp"
- 
-// #define MOT1PWM 9
-// #define MOT1DIR 10
-// #define MOT2PWM 11
-// #define MOT2DIR 12
- 
-// #define EN1A 2
-// #define EN1B 7
-// #define EN2A 3
-// #define EN2B 8
-
-// #define LIDAR 4
- 
-// mtrn3100::Motor motor1(MOT1PWM, MOT1DIR);
-// mtrn3100::Motor motor2(MOT2PWM, MOT2DIR);
-// mtrn3100::Encoder encoder1(EN1A, EN1B);
-// mtrn3100::Encoder encoder2(EN2A, EN2B);
- 
-// // PID for left and right motors
-// // mtrn3100::PIDController pid1(0.7, 0.01, 0.15);
-// // mtrn3100::PIDController pid2(0.7, 0.01, 0.15);
-
-// mtrn3100::Lidar lidar(LIDAR);
-
-// volatile bool objectDetected = false;
- 
-// // Encoder interrupt service routines
-// void encoder1ISR() {
-//   encoder1.readEncoder();
-// }
-// void encoder2ISR() {
-//   encoder2.readEncoder();
-// }
- 
-// void lidarISR(){
-//   objectDetected = true;
-// }
-
-// void setup() {
-//   Serial.begin(9600);
-//   attachInterrupt(digitalPinToInterrupt(EN1A), encoder1ISR, RISING);
-//   attachInterrupt(digitalPinToInterrupt(EN2A), encoder2ISR, RISING);
-//   attachInterrupt(digitalPinToInterrupt(LIDAR), lidarISR, RISING);
-  
-//   encoder1.count = 0;
-//   encoder2.count = 0;
-
-//   lidar.begin();
-// }
- 
-// // Constants for distance tracking
-// const float wheelDiameterCM = 3.55;
-// const float countsPerRev = 700.0;
-// const float cmPerCount = (PI * wheelDiameterCM) / countsPerRev; // ~0.0314 cm
-// const float targetDistanceCM = 500;
-// const int targetCounts = targetDistanceCM / cmPerCount; // ~6366 counts
-// const int obstacleThreshold = 100;  // mm threshold for object detection
- 
-// void loop() {
-//   static bool hasMoved = false;
-//   static unsigned long lastTime = 0;
-//   const unsigned long interval = 20; // PID update interval (ms)
-
-//   if (!hasMoved) {
-//     encoder1.count = 0;
-//     encoder2.count = 0;
-//     hasMoved = true;
-//   }
-
-//   int distance = lidar.readDistanceAndTrigger(obstacleThreshold);
-
-//   if (distance >= 0) { // Valid reading
-//     Serial.print("Distance: ");
-//     Serial.print(distance);
-//     Serial.println(" mm");
-//   } else {
-//     Serial.println("Distance reading error");
-//   }
-
-//   if (distance > 0 && distance < obstacleThreshold) {
-//     // Object detected, stop motors
-//     motor1.setPWM(0);
-//     motor2.setPWM(0);
-//     Serial.println("Object detected! Motors stopped.");
-//   } else {
-//     // No close object, continue PID control
-//     if (millis() - lastTime >= interval && hasMoved) {
-//       lastTime = millis();
-
-//       int m1_error = -encoder1.count - targetCounts;  // motor1 reversed
-//       int m1_pwm = pid1.compute(0, m1_error);
-//       m1_pwm = constrain(m1_pwm, -150, 150);
-//       if (abs(m1_pwm) < 60) m1_pwm = (m1_pwm >= 0) ? 60 : -60;
-//       motor1.setPWM(m1_pwm);
-
-//       int m2_error = encoder2.count - targetCounts;
-//       int m2_pwm = pid2.compute(0, m2_error);
-//       m2_pwm = constrain(m2_pwm, -150, 150);
-//       if (abs(m2_pwm) < 60) m2_pwm = (m2_pwm >= 0) ? 60 : -60;
-//       motor2.setPWM(-m2_pwm);  // motor2 reversed physically
-
-//       if (abs(encoder1.count) >= targetCounts && abs(encoder2.count) >= targetCounts) {
-//         motor1.setPWM(0);
-//         motor2.setPWM(0);
-//         Serial.println("Target reached!");
-//         while (true);  // halt forever
-//       }
-
-//       Serial.print("M1 Count: ");
-//       Serial.print(encoder1.count);
-//       Serial.print(" | M2 Count: ");
-//       Serial.println(encoder2.count);
-//     }
-//   }
-
-//   delay(10);
-// }
-
-
 #include "Encoder.hpp"
 #include "Motor.hpp"
-// #include "PIDController.hpp"  // Disabled PID
+#include "PIDController.hpp"  // Disabled PID
 #include "Lidar.hpp"
 #include <Wire.h>
 #include "IMUOdometry.hpp"
@@ -144,82 +21,196 @@
 int task31();
 int task32();
 int task33();
-int imuTurn(char dir);
 bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40);
 
-
+// GLOBAL VARIABLES 
 float ax_offset = 0.0;
 float ay_offset = 0.0;
 float gz_offset = 0.0;
-
+int basePWM = 100;
+int leftPWM = basePWM;
+int rightPWM = basePWM;
+const float wheelDiameterCM = 3.55;
+const float countsPerRev = 1400;
+const float cmPerCount = (PI * wheelDiameterCM) / countsPerRev; 
+static float targetDistanceCM = 2000;
+const int targetCounts = targetDistanceCM / cmPerCount; 
+// Task 31
+volatile bool objectDetected = false;
+// Task 32
+float targetYaw = 0.0;
+bool hasTurnedInitially = false;
+bool wasLifted = false;
+//States
+bool turnLeft = false;
+bool turnRight = false;
+bool forward = false;
+bool reverse = false;
+bool stop = true;
+// Objects 
 MPU6050 imu;
 
 // Initialize motors and encoders
 mtrn3100::Motor motor1(MOT1PWM, MOT1DIR);
 mtrn3100::Motor motor2(MOT2PWM, MOT2DIR);
-mtrn3100::Encoder encoder1(EN1A, EN1B);
-mtrn3100::Encoder encoder2(EN2A, EN2B);
-
+mtrn3100::Encoder encoder1(EN1A, EN1B,1400);
+mtrn3100::Encoder encoder2(EN2A, EN2B,1400);
+// Initialise pid
+mtrn3100::PIDController pid(1,0.1,0.05);
 // Initialise lidar
 mtrn3100::Lidar lidar(LIDAR);
-
 // Initialise IMU
 mtrn3100::IMUOdometry imuOdom;
-
-volatile bool objectDetected = false;
 
 // LIDAR interrupt
 void lidarISR() {
   objectDetected = true;
 }
-
-void setup() {
-  Serial.begin(9600);
-  attachInterrupt(digitalPinToInterrupt(LIDAR), lidarISR, RISING);
-
-  encoder1.count = 0;
-  encoder2.count = 0;
-
-  bool success = lidar.begin();
-  if (success) {
-    Serial.println("LIDAR initialized successfully.");
-  } else {
-    Serial.println("LIDAR initialization failed!");
-    while (true);
-  }
-
-  Wire.begin();
-  imu.initialize();
-
-  if (imu.testConnection()) {
-    Serial.println("IMU connected successfully.");
-  } else {
-    Serial.println("IMU connection failed!");
-    while (true);
-  }
-
-  delay(1000);
-  imuOdom.calibrateIMU(imu);
-  imuOdom.calibrate(ax_offset, ay_offset, gz_offset);
+// Encoder interrupt service routines
+void encoder1ISR() {
+  encoder1.readEncoder();
 }
 
-// Constants for distance tracking
-const float wheelDiameterCM = 3.55;
-const float countsPerRev = 700.0;
-const float cmPerCount = (PI * wheelDiameterCM) / countsPerRev; // ~0.0314 cm
-const float targetDistanceCM = 2000;
-const int targetCounts = targetDistanceCM / cmPerCount; // ~6366 counts
+void encoder2ISR() {
+  encoder2.readEncoder();
+}
 
+void encoderReset(){
+  encoder1.count = 0;
+  encoder2.count = 0;
+}
+void reset(){
+  // Task 31
+  objectDetected = false;
+  // Task 32
+  targetYaw = 0.0;
+  hasTurnedInitially = false;
+  wasLifted = false;
+  //States
+  turnLeft = false;
+  turnRight = false;
+  forward = false;
+  reverse = false;
+  stop = true;
+}
+
+bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40) {
+    
+    static bool getInitialYaw = false;
+    // Read IMU data
+    int16_t ax, ay, az;
+    int16_t gx, gy, gz;
+    imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+
+  float accel_x = ax / 16384.0;
+  float accel_y = ay / 16384.0;
+  float gyro_z_dps = gz / 131.0;
+
+  imuOdom.update(accel_x, accel_y, gyro_z_dps);
+
+  float currentYaw = imuOdom.getYaw();
+  float rotationDiff = currentYaw - targetYaw;
+
+  if (rotationDiff < -tolerance) {
+    TurnRight();
+    return false;
+  } else if (rotationDiff > tolerance) {
+    TurnLeft();
+    return false;
+  } else {
+    Halt();
+    return true;
+  }
+}
+
+void balanceMotorsWithPID(bool isForward) {
+    int basePWM = 100;
+    int pwmLeft = basePWM;
+    int pwmRight = basePWM;
+
+    static unsigned long prevTime = 0;
+    static long prevLeftCount = 0;
+    static long prevRightCount = 0;
+
+    unsigned long now = millis();
+    float dt = (now - prevTime) / 1000.0f;
+    if (dt < 0.02f) return;
+    prevTime = now;
+
+    long leftCount = encoder1.getCount();
+    long rightCount = -encoder2.getCount();
+
+    long deltaLeft = leftCount - prevLeftCount;
+    long deltaRight = rightCount - prevRightCount;
+
+    prevLeftCount = leftCount;
+    prevRightCount = rightCount;
+
+    float error = deltaLeft - deltaRight;
+
+    static float smoothedError = 0;
+    const float alpha = 0.1f;
+    smoothedError = alpha * error + (1 - alpha) * smoothedError;
+
+    float correction = pid.compute(0, smoothedError, dt);
+
+    if (correction > 0) {
+        pwmLeft = basePWM - abs(correction);
+        pwmRight = basePWM + abs(correction) * 0.5f;
+    } else if (correction < 0) {
+        pwmLeft = basePWM + abs(correction) * 0.5f;
+        pwmRight = basePWM - abs(correction);
+    }
+
+    pwmLeft = constrain(pwmLeft, 0, 255);
+    pwmRight = constrain(pwmRight, 0, 255);
+
+    // Use direction flag
+    if (isForward) {
+        motor1.forward(pwmLeft);
+        motor2.reverse(pwmRight);
+    } else {
+        motor1.reverse(pwmLeft);
+        motor2.forward(pwmRight);
+    }
+}
+
+void setState(bool mforward, bool mReverse, bool mTurnLeft, bool mTurnRight, bool mStop){
+  forward= mforward;
+  reverse= mReverse;
+  turnLeft = mTurnLeft;
+  turnRight = mTurnRight;
+  stop = mStop;
+}
+
+void Forward(){
+  setState(true,false,false,false,false);
+}
+
+void Reverse(){
+  setState(false,true,false,false,false);
+}
+
+void TurnRight(){
+  setState(false,false,false,true,false);
+}
+
+void TurnLeft(){
+  setState(false,false,true,false,false);
+}
+
+void Halt(){
+  setState(false,false,false,false,true);
+}
 
 int task31() {
   static bool hasMoved = false;
-  const int speed = 100;
   const int obstacleThreshold = 100;
   const int tolerance = 5;
 
   if (!hasMoved) {
-    encoder1.count = 0;
-    encoder2.count = 0;
+    encoder1.reset();
+    encoder2.reset();
     hasMoved = true;
   }
 
@@ -232,30 +223,17 @@ int task31() {
   }
 
   if (distance < 0 || distance > 1000) {
-    motor1.forward(speed);
-    motor2.reverse(speed);
+    Forward();
     Serial.println("No object detected — moving FORWARD");
-    return 0;
   } else if (distance <= obstacleThreshold + 5 && distance >= obstacleThreshold - tolerance) {
-    motor1.stop();
-    motor2.stop();
+    Halt();
     Serial.println("Object within range! STOPPED.");
   } else if (distance > 0 && distance < obstacleThreshold - tolerance) {
-    motor1.reverse(speed);
-    motor2.forward(speed);
+    Reverse();
     Serial.println("REVERSE");
-  } else {
-    motor1.forward(speed);
-    motor2.reverse(speed);
-    Serial.println("FORWARD");
-  }
+  } 
   return 0;
 }
-
-bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40);
-float targetYaw = 0.0;
-bool hasTurnedInitially = false;
-bool wasLifted = false;
 
 int task32() {
   int16_t ax, ay, az;
@@ -292,84 +270,20 @@ int task32() {
   return 0;
 }
 
-bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40) {
-    // Read IMU data
-    int16_t ax, ay, az;
-    int16_t gx, gy, gz;
-    imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-
-  float accel_x = ax / 16384.0;
-  float accel_y = ay / 16384.0;
-  float gyro_z_dps = gz / 131.0;
-
-  imuOdom.update(accel_x, accel_y, gyro_z_dps);
-
-  float currentYaw = imuOdom.getYaw();
-  float rotationDiff = currentYaw - targetYaw;
-
-  if (rotationDiff < -tolerance) {
-    motor1.forward(speed);
-    motor2.forward(speed);
-    return false;
-  } else if (rotationDiff > tolerance) {
-    motor1.reverse(speed);
-    motor2.reverse(speed);
-    return false;
-  } else {
-    motor1.stop();
-    motor2.stop();
-    return true;
-  }
-}
-
-int imuTurn(char dir) {
-  int16_t ax, ay, az;
-  int16_t gx, gy, gz;
-  imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-
-  float accel_x = ax / 16384.0;
-  float accel_y = ay / 16384.0;
-  float gyro_z_dps = gz / 131.0;
-
-  imuOdom.update(accel_x, accel_y, gyro_z_dps);
-  int change = (dir == 'l') ? -90 : 90;
-
-  int rotationDiff = gyro_z_dps + change;
-
-  while ((rotationDiff < -3) || (rotationDiff > 3)) {
-    if (rotationDiff < -3) {
-      motor1.setPWM(100);
-      motor2.setPWM(100);
-    } else if (rotationDiff > 3) {
-      motor1.setPWM(-100);
-      motor2.setPWM(-100);
-    }
-
-    imuOdom.update(accel_x, accel_y, gyro_z_dps);
-    rotationDiff = gyro_z_dps + change;
-  }
-
-  motor1.setPWM(0);
-  motor2.setPWM(0);
-  return 0;
-}
-
-
 int task33() {
-  // if (Serial.available() > 0 && command == "") {
-  //   command = Serial.readStringUntil('\n');
-  //   command.trim();
-  //   Serial.print("Received command: ");
-  //   Serial.println(command);
-  //   currentStep = 0;
-  //   executing = true;
-  //   targetYaw = imuOdom.getYaw(); // Set initial heading
-  // }
-
-  static String command = "flfrflfrs";   // <-- s for stop
+  static String command = "frfrfrfs";   // <-- s for stop flfrflfrs
   static int currentStep = 0;
   static bool executing = true;         // <-- Start immediately
-  static float targetYaw = imuOdom.getYaw(); // Initial heading
+  static float targetYaw;                // Initial heading
+  static bool hasStoredInitialYaw = false;
+  static bool isTurning = false;        // Tracks if currently turning
+
+  if (!hasStoredInitialYaw) {
+    targetYaw = imuOdom.getYaw();  // Store initial yaw once
+    hasStoredInitialYaw = true;
+    Serial.print("Stored yaw: ");
+    Serial.println(targetYaw);
+  }
 
   if (executing && currentStep < command.length()) {
     char action = command[currentStep];
@@ -377,46 +291,50 @@ int task33() {
     switch (action) {
       case 'f': {
         Serial.println("Action: FORWARD");
-
-        encoder1.count = 0;
-        encoder2.count = 0;
-
-        float target_distance_mm = 400.0;
-
-        motor1.forward(70);
-        motor2.reverse(70);
-
-        while (!encoder1.move(target_distance_mm, wheelDiameterCM) && !encoder2.move(target_distance_mm, wheelDiameterCM)) {
-          encoder1.readEncoder();
-          encoder2.readEncoder();
+        float target_distance_mm = 100.0;
+        Forward();
+        if (encoder1.move(target_distance_mm, wheelDiameterCM) && encoder2.move(target_distance_mm, wheelDiameterCM)) {
+          currentStep++;
+          Halt();
         }
-
-        motor1.stop();
-        motor2.stop();
         break;
       }
 
       case 'l': {
         Serial.println("Action: LEFT TURN");
-        targetYaw -= 90;
-        while(!turnToYaw(targetYaw, 1 , 30));
-        Serial.print("Left turn completed");
+
+        if (!isTurning) {
+          targetYaw -= 90;  // update once per turn command
+          isTurning = true; 
+        }
+
+        if (turnToYaw(targetYaw, 1, 30)) {
+          currentStep++;
+          isTurning = false;
+          Serial.println("Left turn completed");
+        }
         break;
       }
 
       case 'r': {
         Serial.println("Action: RIGHT TURN");
-        targetYaw += 90;
-        while(!turnToYaw(targetYaw, 1 , 30));
-        Serial.print(" turn completed");
+
+        if (!isTurning) {
+          targetYaw += 90;  // update once per turn command
+          isTurning = true;
+        }
+
+        if (turnToYaw(targetYaw, 1, 30)) {
+          currentStep++;
+          isTurning = false;
+          Serial.println("Right turn completed");
+        }
         break;
       }
-      
-      
+
       case 's': {
         Serial.println("Action: STOP");
-        motor1.stop();
-        motor2.stop();
+        Halt();
         executing = false;
         command = "";
         break;
@@ -427,8 +345,6 @@ int task33() {
         Serial.println(action);
         break;
     }
-
-    currentStep++;
   }
 
   if (executing && currentStep >= command.length()) {
@@ -440,10 +356,66 @@ int task33() {
 }
 
 
+void setup() {
+  Serial.begin(9600);
+  // attaching interrupts 
+  attachInterrupt(digitalPinToInterrupt(EN1A), encoder1ISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(EN2A), encoder2ISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(LIDAR), lidarISR, RISING);
+
+  encoder1.reset();
+  encoder2.reset(); // encoder resets 
+
+  bool success = lidar.begin();
+  if (success) {
+    Serial.println("LIDAR initialized successfully.");
+  } else {
+    Serial.println("LIDAR initialization failed!");
+    while (true);
+  }
+
+  Wire.begin();
+  imu.initialize();
+
+  if (imu.testConnection()) {
+    Serial.println("IMU connected successfully.");
+  } else {
+    Serial.println("IMU connection failed!");
+    while (true);
+  }
+
+  delay(1000);
+  imuOdom.calibrateIMU(imu);
+  imuOdom.calibrate(ax_offset, ay_offset, gz_offset);
+
+}
+
+int starttime = millis();
 
 void loop() {
+  //INSERT TASK HERE
   task33();
+  if(forward || reverse){
+    balanceMotorsWithPID(forward);  
+  }
+
+  else if(turnRight){
+    motor1.forward(basePWM);
+    motor2.forward(basePWM);
+  }
+
+  else if(turnLeft){
+    motor1.reverse(basePWM);
+    motor2.reverse(basePWM);
+  }
+
+  else{
+    motor1.stop();
+    motor2.stop();
+    encoderReset();
+    }
 }
+
 
 
 
