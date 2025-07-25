@@ -90,6 +90,8 @@ namespace mtrn3100 {
         // Low-pass filter state
         float filtered_ax;
         float filtered_ay;
+
+        float bias;
     };
 }
 
