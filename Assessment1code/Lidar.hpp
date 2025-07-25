@@ -71,6 +71,7 @@ namespace mtrn3100 {
 
 class Lidar {
 public:
+    explicit Lidar(uint8_t alertPin) : interruptPin(alertPin) {}
     explicit Lidar(uint8_t alertPin) 
         : interruptPin(alertPin), filteredDistance(-1) {}
 
