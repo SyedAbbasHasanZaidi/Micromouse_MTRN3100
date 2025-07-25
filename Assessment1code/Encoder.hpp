@@ -61,8 +61,10 @@ public:
         return (count / (float)counts_per_revolution) * (2 * PI * wheel_radius_mm); // in mm
     }
 
-    bool move(float target_distance_mm, float wheel_radius_mm) {
-        long target_counts = (long)((target_distance_mm / (2 * PI * wheel_radius_mm)) * counts_per_revolution);
+    bool move(float target_distance_mm, float wheelDiameterCM) {
+        float wheel_radius_mm = wheelDiameterCM/2 * 10;
+        long target_counts = 2350;
+        // long target_counts = (long)((target_distance_mm / (2 * PI * wheel_radius_mm)) * counts_per_revolution);
         return abs(count) >= abs(target_counts);
     }
 
@@ -71,7 +73,7 @@ public:
     const uint8_t encoder2_pin;
     volatile long count = 0;
     volatile int8_t direction = 0;
-    uint16_t counts_per_revolution = 700;
+    uint16_t counts_per_revolution = 1400;
     volatile bool lastA = false;
 
 };

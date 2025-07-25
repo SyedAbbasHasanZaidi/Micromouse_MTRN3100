@@ -21,17 +21,17 @@
 int task31();
 int task32();
 int task33();
-bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40);
+bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 15);
 
 // GLOBAL VARIABLES 
 float ax_offset = 0.0;
 float ay_offset = 0.0;
 float gz_offset = 0.0;
-int basePWM = 100;
-int baseTurnPWM = 50;
+int basePWM = 30;
 int leftPWM = basePWM;
 int rightPWM = basePWM;
-const float wheelDiameterCM = 3.55;
+const float wheelDiameterCM = 3.8;
+const float wheelBaseCM = 8.35;
 const float countsPerRev = 1400;
 const float cmPerCount = (PI * wheelDiameterCM) / countsPerRev; 
 static float targetDistanceCM = 2000;
@@ -63,7 +63,7 @@ mtrn3100::Lidar lidar(LIDAR);
 // Initialise IMU
 mtrn3100::IMUOdometry imuOdom;
 
-// LIDAR interrupt
+// LIDAR interrupt    
 void lidarISR() {
   objectDetected = true;
 }
@@ -95,9 +95,47 @@ void reset(){
   stop = true;
 }
 
-bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 40) {
+float calculateRotationFromEncoders() {
+    // Wheelbase in CM (measure and replace)
+ 
+    // Get encoder counts
+    long leftCount = encoder1.getCount();
+    long rightCount = encoder2.getCount();
+ 
+    // Convert counts to distance (cm)
+    float leftDistanceCM = leftCount * cmPerCount;
+    float rightDistanceCM = -rightCount * cmPerCount; // negative if reversed
+ 
+    // Calculate yaw change in radians
+    float deltaThetaRad = (leftDistanceCM - rightDistanceCM) / wheelBaseCM;
+ 
+    // Convert to degrees
+    float deltaThetaDeg = deltaThetaRad * (180.0 / PI);
+  
+    return deltaThetaDeg;
+}
+ 
+bool turnEncoder(float angle, float tolerance = 1, int speed = 20) {
+
+   float currentAngle = calculateRotationFromEncoders();
+   Serial.print(currentAngle);
+  float diff = currentAngle - angle;
+  if (diff < -tolerance) {
+    TurnLeft();
+    return false;
+  }
+  else if (diff > tolerance ) {
+    TurnRight();
+    return false;
+  }
+  else {
+    Halt();
+    return true;
+  }
+}
+
+bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 15) {
     
-    static bool getInitialYaw = false;
     // Read IMU data
     int16_t ax, ay, az;
     int16_t gx, gy, gz;
@@ -176,61 +214,6 @@ void balanceMotorsWithPID(bool isForward) {
     }
 }
 
-void balanceTurningWithPID(bool turnLeft) {
-    int baseTurnPWM = 40;
-    int pwmLeft = basePWM;
-    int pwmRight = basePWM;
-
-    static unsigned long prevTime = 0;
-    static long prevLeftCount = 0;
-    static long prevRightCount = 0;
-
-    unsigned long now = millis();
-    float dt = (now - prevTime) / 1000.0f;
-    if (dt < 0.02f) return;
-    prevTime = now;
-
-    long leftCount = encoder1.getCount();
-    long rightCount = -encoder2.getCount();
-
-    long deltaLeft = leftCount - prevLeftCount;
-    long deltaRight = rightCount - prevRightCount;
-
-    prevLeftCount = leftCount;
-    prevRightCount = rightCount;
-
-    // For turning: want deltaLeft + deltaRight = 0
-    float error = deltaLeft + deltaRight;
-
-    static float smoothedError = 0;
-    const float alpha = 0.1f;
-    smoothedError = alpha * error + (1 - alpha) * smoothedError;
-
-    float correction = pid.compute(0, smoothedError, dt);
-
-    if (correction > 0) {
-        pwmLeft = baseTurnPWM - abs(correction);
-        pwmRight = baseTurnPWM + abs(correction) * 0.5f;
-    } else if (correction < 0) {
-        pwmLeft = baseTurnPWM + abs(correction) * 0.5f;
-        pwmRight = baseTurnPWM - abs(correction);
-    }
-
-    pwmLeft = constrain(pwmLeft, 0, 255);
-    pwmRight = constrain(pwmRight, 0, 255);
-
-    if (turnLeft) {
-        // Left wheel backward, right wheel forward
-        motor1.reverse(pwmLeft);
-        motor2.reverse(pwmRight);
-    } else {
-        // Left wheel forward, right wheel backward
-        motor1.forward(pwmLeft);
-        motor2.forward(pwmRight);
-    }
-}
-
-
 void setState(bool mforward, bool mReverse, bool mTurnLeft, bool mTurnRight, bool mStop){
   forward= mforward;
   reverse= mReverse;
@@ -247,7 +230,7 @@ void Reverse(){
   setState(false,true,false,false,false);
 }
 
-void TurnRight(){
+void TurnRight(){//
   setState(false,false,false,true,false);
 }
 
@@ -306,6 +289,8 @@ int task32() {
 
   if (!hasTurnedInitially) {
     if (turnToYaw(-90)) {
+      encoder1.reset();
+      encoder2.reset();
       targetYaw = imuOdom.getYaw();
       hasTurnedInitially = true;
       Serial.print("Initial turn complete. Target yaw: ");
@@ -327,7 +312,7 @@ int task32() {
 }
 
 int task33() {
-  static String command = "flflflfls";   // <-- s for stop flfrflfrs
+  static String command = "rfrflfffs";   // <-- s for stop flfrflfrs
   static int currentStep = 0;
   static bool executing = true;         // <-- Start immediately
   static float targetYaw;                // Initial heading
@@ -347,9 +332,11 @@ int task33() {
     switch (action) {
       case 'f': {
         Serial.println("Action: FORWARD");
-        float target_distance_mm = 100.0;
+        float target_distance_mm = 180.0;
         Forward();
         if (encoder1.move(target_distance_mm, wheelDiameterCM) && encoder2.move(target_distance_mm, wheelDiameterCM)) {
+          encoder1.reset();
+          encoder2.reset();
           currentStep++;
           Halt();
         }
@@ -360,14 +347,16 @@ int task33() {
         Serial.println("Action: LEFT TURN");
 
         if (!isTurning) {
-          targetYaw -= 90;  // update once per turn command
+          targetYaw = 90;  // update once per turn command
           isTurning = true; 
         }
-
-        if (turnToYaw(targetYaw, 1, 30)) {
+        
+        if (turnEncoder(targetYaw, 1, 30)) {
           currentStep++;
           isTurning = false;
           Serial.println("Left turn completed");
+          encoder1.reset();
+          encoder2.reset();
         }
         break;
       }
@@ -376,14 +365,16 @@ int task33() {
         Serial.println("Action: RIGHT TURN");
 
         if (!isTurning) {
-          targetYaw += 90;  // update once per turn command
+          targetYaw = -90;  // update once per turn command
           isTurning = true;
         }
 
-        if (turnToYaw(targetYaw, 1, 30)) {
+        if (turnEncoder(targetYaw, 1, 30)) {
           currentStep++;
           isTurning = false;
           Serial.println("Right turn completed");
+          encoder1.reset();
+          encoder2.reset();
         }
         break;
       }
@@ -449,19 +440,30 @@ void setup() {
 int starttime = millis();
 
 void loop() {
+ 
   //INSERT TASK HERE
   task33();
+
+ 
+
   if(forward || reverse){
     balanceMotorsWithPID(forward);  
-  } else if (turnLeft || turnRight) {
-    balanceTurningWithPID(turnLeft);
   }
 
+  else if(turnRight){
+    motor1.forward(basePWM);
+    motor2.forward(basePWM);
+  }
+
+  else if(turnLeft){
+    motor1.reverse(basePWM);
+    motor2.reverse(basePWM);
+  }
 
   else{
     motor1.stop();
     motor2.stop();
-    encoderReset();
+    //encoderReset();
     }
 }
 
