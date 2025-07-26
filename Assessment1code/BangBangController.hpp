@@ -11,10 +11,7 @@ public:
     // Compute the output signal required from the current/actual value.
     float compute(float input) {
         error = setpoint - (input - zero_ref);
-
-        // TODO: IMPLIMENT BANG BANG CONTROLLER - REFER TO THE TUTORIAL SLIDES
         output = 0;
-
         return output;
     }
 

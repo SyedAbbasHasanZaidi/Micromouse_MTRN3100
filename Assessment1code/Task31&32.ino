@@ -51,7 +51,7 @@ bool stop = true;
 // Objects 
 MPU6050 imu;
 
-// Initialize motors and encoders
+// Initialise motors and encoders
 mtrn3100::Motor motor1(MOT1PWM, MOT1DIR);
 mtrn3100::Motor motor2(MOT2PWM, MOT2DIR);
 mtrn3100::Encoder encoder1(EN1A, EN1B,1400);
@@ -95,21 +95,17 @@ void reset(){
   stop = true;
 }
 
+
 float calculateRotationFromEncoders() {
-    // Wheelbase in CM (measure and replace)
- 
-    // Get encoder counts
+
     long leftCount = encoder1.getCount();
     long rightCount = encoder2.getCount();
- 
-    // Convert counts to distance (cm)
+
     float leftDistanceCM = leftCount * cmPerCount;
-    float rightDistanceCM = -rightCount * cmPerCount; // negative if reversed
+    float rightDistanceCM = -rightCount * cmPerCount; 
  
-    // Calculate yaw change in radians
     float deltaThetaRad = (leftDistanceCM - rightDistanceCM) / wheelBaseCM;
  
-    // Convert to degrees
     float deltaThetaDeg = deltaThetaRad * (180.0 / PI);
   
     return deltaThetaDeg;
@@ -135,7 +131,6 @@ bool turnEncoder(float angle, float tolerance = 1, int speed = 20) {
 }
 
 bool turnToYaw(float targetYaw, int tolerance = 1, int speed = 15) {
-    
     // Read IMU data
     int16_t ax, ay, az;
     int16_t gx, gy, gz;
@@ -193,6 +188,7 @@ void balanceMotorsWithPID(bool isForward) {
 
     float correction = pid.compute(0, smoothedError, dt);
 
+    // A two correction for either left or right wheel leading provided by ChatGPT
     if (correction > 0) {
         pwmLeft = basePWM - abs(correction);
         pwmRight = basePWM + abs(correction) * 0.5f;

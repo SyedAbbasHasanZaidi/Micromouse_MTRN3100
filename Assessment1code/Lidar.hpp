@@ -23,18 +23,17 @@ public:
         return true;
     }
 
-    // Reads distance, triggers alertPin HIGH if below threshold, else LOW
     int readDistanceAndTrigger(int threshold) {
         unsigned long start = millis();
         int distance = -1;
 
-        while (millis() - start < 100) {  // 100 ms timeout
+        while (millis() - start < 100) { 
             distance = sensor.readRange();
             if (sensor.readRangeStatus() != VL6180X_ERROR_NONE) {
                 delay(1);
                 continue;
             }
-            break; // got a valid reading
+            break; 
         }
 
         if (distance >= 0 && sensor.readRangeStatus() == VL6180X_ERROR_NONE) {

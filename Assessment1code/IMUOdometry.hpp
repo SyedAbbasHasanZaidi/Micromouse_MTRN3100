@@ -40,7 +40,8 @@ namespace mtrn3100 {
             Serial.print("gz_offset: "); Serial.println(gz_offset, 4);
             Serial.println("Calibration complete.");
         }
-
+        
+        // Used CHATGPT for code generation on low pass filter for noise reduction
         void update(float accel_x, float accel_y, float gyro_z_dps) {
             unsigned long currentTime = millis();
             float dt = (currentTime - lastUpdateTime) / 1000.0; // seconds
