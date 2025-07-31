@@ -516,7 +516,7 @@ void executeCommandSequence(String command) {
   switch (action) {
     case 'f': {
       if (!actionInProgress) {
-        moveStraightWithHeadingCorrection(currentHeading, 20.0);  // Move 10 cm
+        moveStraightWithHeadingCorrection(currentHeading, 18.0);
         actionInProgress = true;
       } else {
         stepIndex++;
@@ -565,7 +565,7 @@ void executeCommandSequence(String command) {
   delay(10);  // Small delay for stability
 }
 
-String command = "frflfrfrffrffrs";
+String command = "frflfrfrffrffrffrfrfflflfflfflffrrs";
 
 void loop() {
   executeCommandSequence(command);
