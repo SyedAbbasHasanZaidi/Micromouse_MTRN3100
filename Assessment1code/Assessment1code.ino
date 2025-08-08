@@ -119,7 +119,7 @@ bool turnToYaw(float targetYaw, int tolerance, int maxSpeed) {
   prevTime = now;
 
   // Use actual yaw values in PID
-  float correction = yawPID.compute(targetYaw, currentYaw, dt);
+  float correction = yawPID.compute(0, -error, dt);
 
   if (abs(error) <= tolerance) {
     motor1.stop();
@@ -516,7 +516,7 @@ void executeCommandSequence(String command) {
   switch (action) {
     case 'f': {
       if (!actionInProgress) {
-        moveStraightWithHeadingCorrection(currentHeading, 18.0);
+        moveStraightWithHeadingCorrection(currentHeading, 19.0);
         actionInProgress = true;
       } else {
         stepIndex++;
@@ -525,7 +525,7 @@ void executeCommandSequence(String command) {
       break;
     }
 
-    case 'r': {
+    case 'l': {
       float targetHeading = currentHeading + 90.0;
       if (targetHeading >= 360.0) targetHeading -= 360.0;
 
@@ -536,7 +536,7 @@ void executeCommandSequence(String command) {
       break;
     }
 
-    case 'l': {
+    case 'r': {
       float targetHeading = currentHeading - 90.0;
       if (targetHeading < 0.0) targetHeading += 360.0;
 
@@ -565,8 +565,8 @@ void executeCommandSequence(String command) {
   delay(10);  // Small delay for stability
 }
 
-String command = "frflfrfrffrffrffrfrfflflfflfflffrrs";
-
+// String command = "lfrflfffflfrflfrflfffflfs";
+String command = "rflfrffffrflfrflfrffffrfs";
 void loop() {
   executeCommandSequence(command);
 }
