@@ -1,98 +1,79 @@
 #ifndef IMU_ODOMETRY_HPP
 #define IMU_ODOMETRY_HPP
 
-#include <Arduino.h>
+#include <Wire.h>
 #include <MPU6050.h>
 
-namespace mtrn3100 {
-    class IMUOdometry {
-    public:
-        IMUOdometry()
-            : x(0), y(0), vx(0), vy(0), yaw(0),
-              ax_offset(0), ay_offset(0), gz_offset(0),
-              lastUpdateTime(millis()),
-              filtered_ax(0), filtered_ay(0) {}
+class IMU {
+private:
+  MPU6050 imu;
 
-        void calibrate(float ax_off, float ay_off, float gz_off) {
-            ax_offset = ax_off;
-            ay_offset = ay_off;
-            gz_offset = gz_off;
-        }
+  // Biases for accelerometer
+  float ax_bias;
+  float ay_bias;
+  float az_bias;
 
-        void calibrateIMU(MPU6050& imu, int samples = 500) {
-            long ax_sum = 0, ay_sum = 0, gz_sum = 0;
-            Serial.println("Calibrating IMU... Keep robot still.");
-            for (int i = 0; i < samples; i++) {
-                int16_t ax, ay, az;
-                int16_t gx, gy, gz;
-                imu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-                ax_sum += ax;
-                ay_sum += ay;
-                gz_sum += gz;
-                delay(5);
-            }
-            ax_offset = (ax_sum / (float)samples) / 16384.0;
-            ay_offset = (ay_sum / (float)samples) / 16384.0;
-            gz_offset = (gz_sum / (float)samples) / 131.0;
+  // Bias for gyro z-axis (yaw)
+  float gz_bias;
 
-            Serial.print("ax_offset: "); Serial.println(ax_offset, 4);
-            Serial.print("ay_offset: "); Serial.println(ay_offset, 4);
-            Serial.print("gz_offset: "); Serial.println(gz_offset, 4);
-            Serial.println("Calibration complete.");
-        }
+  // Constants
+  static constexpr float G_TO_MS2 = 9.81f;      // conversion factor
+  static constexpr float alpha = 0.98f;         // complementary filter coefficient for filter
 
-        void update(float accel_x, float accel_y, float gyro_z_dps) {
-            unsigned long currentTime = millis();
-            float dt = (currentTime - lastUpdateTime) / 1000.0; // seconds
-            lastUpdateTime = currentTime;
+  // Angles
+  float pitch;
+  float roll;
+  float yaw;
 
-            // Apply offsets
-            accel_x -= ax_offset;
-            accel_y -= ay_offset;
-            
-            gyro_z_dps -= gz_offset;
+  // Timing
+  unsigned long prevTime;
 
-            // Low-pass filter (EMA)
-            const float alpha = 0.8; // smoothing factor
-            filtered_ax = alpha * filtered_ax + (1 - alpha) * accel_x;
-            filtered_ay = alpha * filtered_ay + (1 - alpha) * accel_y;
+  // Store latest acceleration for print()
+  float ax, ay, az;
 
-            // Threshold to reduce drift
-            if (abs(filtered_ax) < 0.03) filtered_ax = 0;
-            if (abs(filtered_ay) < 0.03) filtered_ay = 0;
-            if (abs(gyro_z_dps) < 0.5) gyro_z_dps = 0;
+  // Calibrate accelerometer biases by averaging N stationary samples.
+  // Input: samples - number of samples to average
+  // Output: none (updates ax_bias, ay_bias, az_bias)
+  void calibrateAccel(int samples);
 
-            // Integrate acceleration to get velocity
-            vx += filtered_ax * dt;
-            vy += filtered_ay * dt;
+  // Calibrate gyro Z-axis bias (yaw) by averaging N stationary samples.
+  // Input: samples - number of samples to average
+  // Output: none (updates gz_bias)
+  void calibrateGyroZ(int samples);
 
-            // Integrate velocity to get position
-            x += vx * dt;
-            y += vy * dt;
+public:
+  // Default constructor
+  IMU();
 
-            // Integrate gyro to get yaw (degrees)
-            yaw += gyro_z_dps * dt;
-            if (yaw > 180) yaw -= 360;
-            if (yaw < -180) yaw += 360;
-        }
+  // Initialize MPU6050 and calibrate sensors.
+  // Input: none
+  // Output: none
+  void begin();
 
-        float getX() const { return x; }
-        float getY() const { return y; }
-        float getYaw() const { return yaw; }
+  // Read sensor data, correct biases, and update pitch, roll, yaw.
+  // Input: none
+  // Output: none (updates pitch, roll, yaw, ax, ay, az)
+  void update();
 
-    private:
-        float x, y;
-        float vx, vy;
-        float yaw;
-        float ax_offset, ay_offset, gz_offset;
-        unsigned long lastUpdateTime;
+  // Print acceleration (m/s^2) and orientation angles (degrees) to Serial.
+  // Input: none
+  // Output: none (prints to Serial)
+  void print();
+  // Reset orientation estimates (pitch, roll, yaw) to zero.
+// Input: none
+// Output: none (resets internal state)
+void reset();
 
-        // Low-pass filter state
-        float filtered_ax;
-        float filtered_ay;
+// Get current orientation angles (pitch, roll, yaw).
+// Input: references to store values
+// Output: pitch, roll, yaw set via references
+void getOrientation(float& pitch_out, float& roll_out, float& yaw_out);
 
-        float bias;
-    };
-}
+// Get current linear acceleration (ax, ay, az) in m/s^2.
+// Input: references to store values
+// Output: ax, ay, az set via references
+void getAcceleration(float& ax_out, float& ay_out, float& az_out);
+
+};
 
 #endif // IMU_ODOMETRY_HPP
