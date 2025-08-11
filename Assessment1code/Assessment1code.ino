@@ -17,8 +17,6 @@
 #define EN2A 3
 #define EN2B 8
 
-#define LIDAR 4
-
 int task31();
 int task32();
 int task33();
@@ -48,13 +46,21 @@ bool turnRight = false;
 bool forward = false;
 bool reverse = false;
 bool stop = true;
+//Lidar pins
+int LIDAR1 = A0;
+int LIDAR2 = A1;
+int LIDAR3 = A2;
 // Objects 
 mtrn3100::Motor motor1(MOT1PWM, MOT1DIR);
 mtrn3100::Motor motor2(MOT2PWM, MOT2DIR);
 mtrn3100::Encoder encoder1(EN1A, EN1B,1400);
 mtrn3100::Encoder encoder2(EN2A, EN2B,1400);
 mtrn3100::PIDController pid(1,0.1,0.05);
-mtrn3100::Lidar lidar(LIDAR);
+
+mtrn3100::Lidar lidar1(LIDAR1,  0x30);
+mtrn3100::Lidar lidar2(LIDAR2,  0x31);
+mtrn3100::Lidar lidar3(LIDAR3,  0x32);
+
 IMU imuOdom;
 OledDisplay oled;
 // LIDAR interrupt
@@ -299,206 +305,221 @@ void TurnRight(){ setState(false,false,false,true,false); }
 void TurnLeft(){ setState(false,false,true,false,false); }
 void Halt(){ setState(false,false,false,false,true); }
 
-int task31() {
-  static bool hasMoved = false;
-  const int obstacleThreshold = 100;
-  const int tolerance = 5;
+// int task31() {
+//   static bool hasMoved = false;
+//   const int obstacleThreshold = 100;
+//   const int tolerance = 5;
 
-  if (!hasMoved) {
-    encoder1.reset();
-    encoder2.reset();
-    hasMoved = true;
-  }
+//   if (!hasMoved) {
+//     encoder1.reset();
+//     encoder2.reset();
+//     hasMoved = true;
+//   }
 
-  int distance = lidar.readDistanceAndTrigger(obstacleThreshold);
+//   int distance = lidar.readDistanceAndTrigger(obstacleThreshold);
 
-  if (distance >= 0) {
-    Serial.print("Distance: ");
-    Serial.print(distance);
-    Serial.println(" mm");
-  }
+//   if (distance >= 0) {
+//     Serial.print("Distance: ");
+//     Serial.print(distance);
+//     Serial.println(" mm");
+//   }
 
-  if (distance < 0 || distance > 1000) {
-    Forward();
-    Serial.println("No object detected — moving FORWARD");
-  } else if (distance <= obstacleThreshold + 5 && distance >= obstacleThreshold - tolerance) {
-    Halt();
-    Serial.println("Object within range! STOPPED.");
-  } else if (distance > 0 && distance < obstacleThreshold - tolerance) {
-    Reverse();
-    Serial.println("REVERSE");
-  } 
-  return 0;
-}
+//   if (distance < 0 || distance > 1000) {
+//     Forward();
+//     Serial.println("No object detected — moving FORWARD");
+//   } else if (distance <= obstacleThreshold + 5 && distance >= obstacleThreshold - tolerance) {
+//     Halt();
+//     Serial.println("Object within range! STOPPED.");
+//   } else if (distance > 0 && distance < obstacleThreshold - tolerance) {
+//     Reverse();
+//     Serial.println("REVERSE");
+//   } 
+//   return 0;
+// }
 
-int task32() {
-  imuOdom.update();
-  float currentYaw;
-  float ax, ay, az;
-  imuOdom.getOrientation(ax, ay, currentYaw);
-  imuOdom.getAcceleration(ax, ay, az);
+// int task32() {
+//   imuOdom.update();
+//   float currentYaw;
+//   float ax, ay, az;
+//   imuOdom.getOrientation(ax, ay, currentYaw);
+//   imuOdom.getAcceleration(ax, ay, az);
   
 
-  if (!hasTurnedInitially) {
-    if (turnToYaw(-90)) {
-      imuOdom.getOrientation(ax, ay, targetYaw);
-      hasTurnedInitially = true;
-      // Serial.print("Initial turn complete. Target yaw: ");
-      // Serial.println(targetYaw);
-      // Serial.println("Current yaw: ");
-      // Serial.println(currentYaw);
-    }
-    return 0;
-  }
+//   if (!hasTurnedInitially) {
+//     if (turnToYaw(-90)) {
+//       imuOdom.getOrientation(ax, ay, targetYaw);
+//       hasTurnedInitially = true;
+//       // Serial.print("Initial turn complete. Target yaw: ");
+//       // Serial.println(targetYaw);
+//       // Serial.println("Current yaw: ");
+//       // Serial.println(currentYaw);
+//     }
+//     return 0;
+//   }
 
-  float accel_mag = sqrt(ax * ax + ay * ay + az * az);
-  if (accel_mag < 0.7) {
-    wasLifted = true;
-  }
+//   float accel_mag = sqrt(ax * ax + ay * ay + az * az);
+//   if (accel_mag < 0.7) {
+//     wasLifted = true;
+//   }
 
-  if (turnToYaw(targetYaw)) {
-    // Serial.println("Returned to original orientation.");
-    // Serial.print(" Target yaw: ");
-    // Serial.println(targetYaw);
-    // Serial.println("Current yaw: ");
-    // Serial.println(currentYaw);
-    wasLifted = false;
-  }
-  return 0;
-}
+//   if (turnToYaw(targetYaw)) {
+//     // Serial.println("Returned to original orientation.");
+//     // Serial.print(" Target yaw: ");
+//     // Serial.println(targetYaw);
+//     // Serial.println("Current yaw: ");
+//     // Serial.println(currentYaw);
+//     wasLifted = false;
+//   }
+//   return 0;
+// }
 
-int task33() {
-  static String command = "lflffrrfs";   // Command sequence: left, forward, left, forward, forward, right, right, forward, stop
-  static int currentStep = 0;
-  static bool executing = true;
-  static float initialYaw = 0.0;
-  static float targetYaw = 0.0;
-  static bool hasStoredInitialYaw = false;
-  static bool isTurning = false;
-  static int turnCount = 0;  // To keep track of how many turns made
+// int task33() {
+//   static String command = "lflffrrfs";   // Command sequence: left, forward, left, forward, forward, right, right, forward, stop
+//   static int currentStep = 0;
+//   static bool executing = true;
+//   static float initialYaw = 0.0;
+//   static float targetYaw = 0.0;
+//   static bool hasStoredInitialYaw = false;
+//   static bool isTurning = false;
+//   static int turnCount = 0;  // To keep track of how many turns made
 
-  if (!hasStoredInitialYaw) {
-    imuOdom.update();
-    float dummy1, dummy2;
-    imuOdom.getOrientation(dummy1, dummy2, initialYaw);
-    targetYaw = initialYaw;
-    hasStoredInitialYaw = true;
-    Serial.print("Stored initial yaw: ");
-    Serial.println(initialYaw);
-  }
+//   if (!hasStoredInitialYaw) {
+//     imuOdom.update();
+//     float dummy1, dummy2;
+//     imuOdom.getOrientation(dummy1, dummy2, initialYaw);
+//     targetYaw = initialYaw;
+//     hasStoredInitialYaw = true;
+//     Serial.print("Stored initial yaw: ");
+//     Serial.println(initialYaw);
+//   }
 
-  if (executing && currentStep < command.length()) {
-    char action = command[currentStep];
+//   if (executing && currentStep < command.length()) {
+//     char action = command[currentStep];
 
-    switch (action) {
-      case 'f': {
-        Serial.println("Action: FORWARD");
-        float target_distance_mm = 30.0;
-        Forward();
-        if (encoder1.move(target_distance_mm, wheelDiameterCM) && encoder2.move(target_distance_mm, wheelDiameterCM)) {
-          encoder1.reset();
-          encoder2.reset();
-          currentStep++;
-          Halt();
-          Serial.println("Forward movement complete");
-        }
-        break;
-      }
+//     switch (action) {
+//       case 'f': {
+//         Serial.println("Action: FORWARD");
+//         float target_distance_mm = 30.0;
+//         Forward();
+//         if (encoder1.move(target_distance_mm, wheelDiameterCM) && encoder2.move(target_distance_mm, wheelDiameterCM)) {
+//           encoder1.reset();
+//           encoder2.reset();
+//           currentStep++;
+//           Halt();
+//           Serial.println("Forward movement complete");
+//         }
+//         break;
+//       }
 
-      case 'l': {
-        Serial.println("Action: LEFT TURN");
+//       case 'l': {
+//         Serial.println("Action: LEFT TURN");
 
-        if (!isTurning) {
-          // Calculate new target yaw for left turn (+90 degrees from initial yaw per turn)
-          float desiredAngle = fmod(initialYaw + 90.0 * (turnCount + 1), 360.0);
-          if (desiredAngle > 180.0) desiredAngle -= 360.0;  // Normalize angle to [-180, 180]
-          targetYaw = desiredAngle;
-          Serial.print("Target Yaw for left turn: ");
-          Serial.println(targetYaw);
-          isTurning = true;
-        }
+//         if (!isTurning) {
+//           // Calculate new target yaw for left turn (+90 degrees from initial yaw per turn)
+//           float desiredAngle = fmod(initialYaw + 90.0 * (turnCount + 1), 360.0);
+//           if (desiredAngle > 180.0) desiredAngle -= 360.0;  // Normalize angle to [-180, 180]
+//           targetYaw = desiredAngle;
+//           Serial.print("Target Yaw for left turn: ");
+//           Serial.println(targetYaw);
+//           isTurning = true;
+//         }
 
-        if (turnToYaw(targetYaw, 1, 30)) {  // Use your existing turnToYaw function
-          encoder1.reset();
-          encoder2.reset();
-          isTurning = false;
-          turnCount++;
-          currentStep++;
-          Serial.println("Left turn completed");
-        }
-        break;
-      }
+//         if (turnToYaw(targetYaw, 1, 30)) {  // Use your existing turnToYaw function
+//           encoder1.reset();
+//           encoder2.reset();
+//           isTurning = false;
+//           turnCount++;
+//           currentStep++;
+//           Serial.println("Left turn completed");
+//         }
+//         break;
+//       }
 
-      case 'r': {
-        Serial.println("Action: RIGHT TURN");
+//       case 'r': {
+//         Serial.println("Action: RIGHT TURN");
 
-        if (!isTurning) {
-          // Calculate new target yaw for right turn (-90 degrees from initial yaw per turn)
-          float desiredAngle = fmod(initialYaw - 90.0 * (turnCount + 1), 360.0);
-          if (desiredAngle > 180.0) desiredAngle -= 360.0;  // Normalize angle to [-180, 180]
-          targetYaw = desiredAngle;
-          Serial.print("Target Yaw for right turn: ");
-          Serial.println(targetYaw);
-          isTurning = true;
-        }
+//         if (!isTurning) {
+//           // Calculate new target yaw for right turn (-90 degrees from initial yaw per turn)
+//           float desiredAngle = fmod(initialYaw - 90.0 * (turnCount + 1), 360.0);
+//           if (desiredAngle > 180.0) desiredAngle -= 360.0;  // Normalize angle to [-180, 180]
+//           targetYaw = desiredAngle;
+//           Serial.print("Target Yaw for right turn: ");
+//           Serial.println(targetYaw);
+//           isTurning = true;
+//         }
 
-        if (turnToYaw(targetYaw, 1, 30)) {
-          encoder1.reset();
-          encoder2.reset();
-          isTurning = false;
-          turnCount++;
-          currentStep++;
-          Serial.println("Right turn completed");
-        }
-        break;
-      }
+//         if (turnToYaw(targetYaw, 1, 30)) {
+//           encoder1.reset();
+//           encoder2.reset();
+//           isTurning = false;
+//           turnCount++;
+//           currentStep++;
+//           Serial.println("Right turn completed");
+//         }
+//         break;
+//       }
 
-      case 's': {
-        Serial.println("Action: STOP");
-        Halt();
-        executing = false;
-        command = "";
-        break;
-      }
+//       case 's': {
+//         Serial.println("Action: STOP");
+//         Halt();
+//         executing = false;
+//         command = "";
+//         break;
+//       }
 
-      default:
-        Serial.print("Unknown command: ");
-        Serial.println(action);
-        currentStep++;
-        break;
-    }
-  }
+//       default:
+//         Serial.print("Unknown command: ");
+//         Serial.println(action);
+//         currentStep++;
+//         break;
+//     }
+//   }
 
-  if (executing && currentStep >= command.length()) {
-    executing = false;
-    command = "";
-    Serial.println("Completed all commands");
-  }
+//   if (executing && currentStep >= command.length()) {
+//     executing = false;
+//     command = "";
+//     Serial.println("Completed all commands");
+//   }
 
-  return 0;
-}
+//   return 0;
+// }
 
 
 void setup() {
   Serial.begin(9600);
   Wire.begin();
+
   attachInterrupt(digitalPinToInterrupt(EN1A), encoder1ISR, CHANGE);
   attachInterrupt(digitalPinToInterrupt(EN2A), encoder2ISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(LIDAR), lidarISR, RISING);
+
+  startLidars();
 
   encoder1.reset();
   encoder2.reset();
 
-  bool success = lidar.begin();
-  if (success) Serial.println("LIDAR initialized successfully.");
-  else {
-    Serial.println("LIDAR initialization failed!");
-    while (true);
-  }
-
   imuOdom.begin();
 }
 int starttime = millis();
+
+void startLidars() {
+  pinMode(LIDAR1, OUTPUT);
+  pinMode(LIDAR2, OUTPUT);
+  pinMode(LIDAR3, OUTPUT);
+  digitalWrite(LIDAR1, LOW);
+  digitalWrite(LIDAR2, LOW);
+  digitalWrite(LIDAR3, LOW);
+
+  digitalWrite(LIDAR1, HIGH);
+  lidar1.init();
+  delay(50);
+  digitalWrite(LIDAR2, HIGH);
+  lidar2.init();
+  delay(50);
+  digitalWrite(LIDAR3, HIGH);
+  lidar3.init();
+  Serial.println("LIDARs initialized");
+  delay(1000);  // Allow time for LIDARs to stabilize
+}
 
 void executeCommandSequence(String command) {
   static int stepIndex = 0;
@@ -565,8 +586,34 @@ void executeCommandSequence(String command) {
   delay(10);  // Small delay for stability
 }
 
+
 // String command = "lfrflfffflfrflfrflfffflfs";
 String command = "rflfrffffrflfrflfrffffrfs";
+// void loop() {
+//   // executeCommandSequence(command);
+// }
+
 void loop() {
-  executeCommandSequence(command);
+  const int detectionThreshold = 100;  // mm, adjust as needed
+
+  int distFront = lidar1.readDistanceAndTrigger(detectionThreshold);
+  int distLeft = lidar2.readDistanceAndTrigger(detectionThreshold);
+  int distRight = lidar3.readDistanceAndTrigger(detectionThreshold);
+
+  bool detected = false;
+
+  if (distFront > 0 && distFront <= detectionThreshold) {
+    Serial.println("Object detected by FRONT lidar");
+    detected = true;
+  }
+  if (distLeft > 0 && distLeft <= detectionThreshold) {
+    Serial.println("Object detected by LEFT lidar");
+    detected = true;
+  }
+  if (distRight > 0 && distRight <= detectionThreshold) {
+    Serial.println("Object detected by RIGHT lidar");
+    detected = true;
+  }
+
+  delay(200);  // small delay to reduce serial spam
 }
