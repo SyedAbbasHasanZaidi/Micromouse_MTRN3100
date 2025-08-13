@@ -58,13 +58,6 @@ mtrn3100::Lidar lidar(LIDAR);
 IMU imuOdom;
 OledDisplay oled;
 
-struct Cell {
-    bool wallNorth;
-    bool wallEast;
-    bool wallSouth;
-    bool wallWest;
-};
-
 Cell maze[9][9];  // 9x9 maze grid
 
 // LIDAR interrupt
@@ -575,47 +568,132 @@ void executeCommandSequence(String command) {
   delay(10);  // Small delay for stability
 }
 
-void maze_exploration(int intitialX, int initialY, int targetX, int targetY, int heading) {
-  for (int x = 0; x < 9; x++) {
-    for (int y = 0; y < 9; y++) {
-        maze[x][y].wallNorth = false;
-        maze[x][y].wallEast  = false;
-        maze[x][y].wallSouth = false;
-        maze[x][y].wallWest  = false;
-    }
-  }
-  
-  int left_lidar_distance = lidar.readDistanceAndTrigger(100);
-  int right_lidar_distance = lidar.readDistanceAndTrigger(100);
-  int front_lidar_distance = lidar.readDistanceAndTrigger(100);
+struct Cell {
+    bool wallNorth;
+    bool wallEast;
+    bool wallSouth;
+    bool wallWest;
+    bool visited;
+};
 
-  if(heading == 90) { // Facing North
-    maze[initialX][initialY].wallNorth = (front_lidar_distance <);
-    maze[initialX][initialY].wallEast  = (right_lidar_distance < 100);
-    maze[initialX][initialY].wallSouth = (left_lidar_distance < 100);
-  } else if(heading == 180) { // Facing East
-    maze[initialX][initialY].wallNorth = (left_lidar_distance == -1);
-    maze[initialX][initialY].wallEast  = (front_lidar_distance < 100);
-    maze[initialX][initialY].wallWest  = (right_lidar_distance < 100);
-  } else if(heading == 270) { // Facing South
-    maze[initialX][initialY].wallEast  = (left_lidar_distance < 100);
-    maze[initialX][initialY].wallSouth = (front_lidar_distance < 100);
-    maze[initialX][initialY].wallWest  = (right_lidar_distance < 100);
-  } else if(heading == 0) { // Facing West
-    maze[initialX][initialY].wallNorth = (right_lidar_distance < 100);
-    maze[initialX][initialY].wallSouth = (left_lidar_distance < 100);
-    maze[initialX][initialY].wallWest  = (front_lidar_distance < 100);
-  }
+Cell maze[9][9]; // 9x9 maze
 
+// Robot position and heading (0=West, 90=North, 180=East, 270=South)
+int robotX, robotY, heading;
 
+// Movement black-box functions
+void rotateLeft(); //TODO
+void rotateRight(); //TODO 
+void moveForward(); //TODO
 
-
-
-
-
-
-
+// Helper: normalize heading
+int normalizeHeading(int h) {
+    if (h < 0) h += 360;
+    if (h >= 360) h -= 360;
+    return h;
 }
+
+// Read walls and update current cell
+void updateWalls() {
+    int leftDist  = lidarLeft.readDistanceAndTrigger(100);
+    int rightDist = lidarRight.readDistanceAndTrigger(100);
+    int frontDist = lidarFront.readDistanceAndTrigger(100);
+
+    Cell &current = maze[robotX][robotY];
+    if (heading == 90) { // North
+        current.wallNorth = (frontDist != -1);
+        current.wallEast  = (rightDist != -1);
+        current.wallWest  = (leftDist  != -1);
+    } else if (heading == 180) { // East
+        current.wallEast  = (frontDist != -1);
+        current.wallSouth = (rightDist != -1);
+        current.wallNorth = (leftDist  != -1);
+    } else if (heading == 270) { // South
+        current.wallSouth = (frontDist != -1);
+        current.wallWest  = (rightDist != -1);
+        current.wallEast  = (leftDist  != -1);
+    } else if (heading == 0) { // West
+        current.wallWest  = (frontDist != -1);
+        current.wallNorth = (rightDist != -1);
+        current.wallSouth = (leftDist  != -1);
+    }
+}
+
+// Check if a cell in a given direction is unexplored and not blocked
+bool canGoDirection(int dir) {
+    dir = normalizeHeading(dir);
+    Cell &c = maze[robotX][robotY];
+    if (dir == 90 && !c.wallNorth && !maze[robotX][robotY+1].visited) return true;
+    if (dir == 180 && !c.wallEast  && !maze[robotX+1][robotY].visited) return true;
+    if (dir == 270 && !c.wallSouth && !maze[robotX][robotY-1].visited) return true;
+    if (dir == 0 && !c.wallWest    && !maze[robotX-1][robotY].visited) return true;
+    return false;
+}
+
+// Move robot forward one cell in the heading direction
+void stepForward() {
+    if (heading == 90) robotY++;
+    else if (heading == 180) robotX++;
+    else if (heading == 270) robotY--;
+    else if (heading == 0) robotX--;
+    moveForward();
+}
+
+// Main exploration
+void maze_exploration(int startX, int startY, int startHeading) {
+    // Initialize maze
+    for (int x = 0; x < 9; x++) {
+        for (int y = 0; y < 9; y++) {
+            maze[x][y] = {false, false, false, false, false};
+        }
+    }
+
+    robotX = startX;
+    robotY = startY;
+    heading = startHeading;
+
+    bool explorationDone = false;
+
+    while (!explorationDone) {
+        maze[robotX][robotY].visited = true;
+        updateWalls();
+
+        // Try directions in priority: left, forward, right, backtrack
+        if (canGoDirection(heading - 90)) {
+            rotateLeft();
+            heading = normalizeHeading(heading - 90);
+            stepForward();
+        }
+        else if (canGoDirection(heading)) {
+            stepForward();
+        }
+        else if (canGoDirection(heading + 90)) {
+            rotateRight();
+            heading = normalizeHeading(heading + 90);
+            stepForward();
+        }
+        else {
+            // Backtrack: turn around and move
+            rotateRight();
+            rotateRight();
+            heading = normalizeHeading(heading + 180);
+            stepForward();
+        }
+
+        // Check if all cells visited
+        explorationDone = true;
+        for (int x = 0; x < 9; x++) {
+            for (int y = 0; y < 9; y++) {
+                if (!maze[x][y].visited) {
+                    explorationDone = false;
+                    break;
+                }
+            }
+            if (!explorationDone) break;
+        }
+    }
+}
+
 
 // String command = "lfrflfffflfrflfrflfffflfs";
 String command = "rflfrffffrflfrflfrffffrfs";
