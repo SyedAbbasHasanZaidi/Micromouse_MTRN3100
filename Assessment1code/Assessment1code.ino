@@ -57,6 +57,16 @@ mtrn3100::PIDController pid(1,0.1,0.05);
 mtrn3100::Lidar lidar(LIDAR);
 IMU imuOdom;
 OledDisplay oled;
+
+struct Cell {
+    bool wallNorth;
+    bool wallEast;
+    bool wallSouth;
+    bool wallWest;
+};
+
+Cell maze[9][9];  // 9x9 maze grid
+
 // LIDAR interrupt
 void lidarISR() {
   objectDetected = true;
@@ -563,6 +573,48 @@ void executeCommandSequence(String command) {
   }
 
   delay(10);  // Small delay for stability
+}
+
+void maze_exploration(int intitialX, int initialY, int targetX, int targetY, int heading) {
+  for (int x = 0; x < 9; x++) {
+    for (int y = 0; y < 9; y++) {
+        maze[x][y].wallNorth = false;
+        maze[x][y].wallEast  = false;
+        maze[x][y].wallSouth = false;
+        maze[x][y].wallWest  = false;
+    }
+  }
+  
+  int left_lidar_distance = lidar.readDistanceAndTrigger(100);
+  int right_lidar_distance = lidar.readDistanceAndTrigger(100);
+  int front_lidar_distance = lidar.readDistanceAndTrigger(100);
+
+  if(heading == 90) { // Facing North
+    maze[initialX][initialY].wallNorth = (front_lidar_distance <);
+    maze[initialX][initialY].wallEast  = (right_lidar_distance < 100);
+    maze[initialX][initialY].wallSouth = (left_lidar_distance < 100);
+  } else if(heading == 180) { // Facing East
+    maze[initialX][initialY].wallNorth = (left_lidar_distance == -1);
+    maze[initialX][initialY].wallEast  = (front_lidar_distance < 100);
+    maze[initialX][initialY].wallWest  = (right_lidar_distance < 100);
+  } else if(heading == 270) { // Facing South
+    maze[initialX][initialY].wallEast  = (left_lidar_distance < 100);
+    maze[initialX][initialY].wallSouth = (front_lidar_distance < 100);
+    maze[initialX][initialY].wallWest  = (right_lidar_distance < 100);
+  } else if(heading == 0) { // Facing West
+    maze[initialX][initialY].wallNorth = (right_lidar_distance < 100);
+    maze[initialX][initialY].wallSouth = (left_lidar_distance < 100);
+    maze[initialX][initialY].wallWest  = (front_lidar_distance < 100);
+  }
+
+
+
+
+
+
+
+
+
 }
 
 // String command = "lfrflfffflfrflfrflfffflfs";
