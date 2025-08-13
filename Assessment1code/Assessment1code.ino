@@ -5,7 +5,7 @@
 #include <Wire.h>
 #include "IMUOdometry.hpp"  
 #include <MPU6050.h>
-#include "OledDisplay.hpp"  
+#include "OledDisplay.hpp"
 
 #define MOT1PWM 9
 #define MOT1DIR 10
@@ -565,8 +565,76 @@ void executeCommandSequence(String command) {
   delay(10);  // Small delay for stability
 }
 
-// String command = "lfrflfffflfrflfrflfffflfs";
-String command = "rflfrffffrflfrflfrffffrfs";
-void loop() {
-  executeCommandSequence(command);
+struct Step {
+  float heading;
+  float distance;
+};
+
+// Adjust to your maximum expected steps
+const int MAX_STEPS = 10;
+static Step steps[MAX_STEPS];
+static int stepCount = 0;
+
+void executeHeadingDistanceSequence(String sequence) {
+  static int stepIndex = 0;
+  static bool actionInProgress = false;
+  static float currentHeading = 0.0;
+
+  // Only parse sequence the first time
+  if (stepCount == 0) {
+    int start = 0;
+    while (start < sequence.length() && stepCount < MAX_STEPS) {
+      int hStart = sequence.indexOf('(', start);
+      int comma = sequence.indexOf(',', hStart);
+      int dEnd = sequence.indexOf(')', comma);
+      if (hStart == -1 || comma == -1 || dEnd == -1) break;
+
+      steps[stepCount].heading  = sequence.substring(hStart + 1, comma).toFloat();
+      steps[stepCount].distance = sequence.substring(comma + 1, dEnd).toFloat();
+      stepCount++;
+
+      start = dEnd + 1;
+    }
+  }
+
+  if (stepIndex >= stepCount) {
+    motor1.stop();
+    motor2.stop();
+    return;
+  }
+
+  float targetHeading = steps[stepIndex].heading;
+  float distance      = steps[stepIndex].distance;
+
+  switch (actionInProgress) {
+    case false: {
+      if (turnToYaw(targetHeading, 2, 100)) {
+        currentHeading = targetHeading;
+        actionInProgress = true;
+      }
+      break;
+    }
+
+    case true: {
+      moveStraightWithHeadingCorrection(currentHeading, distance);
+      stepIndex++;
+      actionInProgress = false;
+      break;
+    }
+  }
+
+  delay(10);
 }
+
+String sequence = "(90, 20); (180, 15); (270, 25); (0, 10)";
+
+void loop() {
+  executeHeadingDistanceSequence(sequence);
+}
+
+ 
+// // String command = "lfrflfffflfrflfrflfffflfs";
+// String command = "rflfrffffrflfrflfrffffrfs";
+// void loop() {
+//   executeCommandSequence(command);
+// }
