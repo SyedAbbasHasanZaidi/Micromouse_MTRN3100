@@ -626,7 +626,7 @@ void executeHeadingDistanceSequence(String sequence) {
   delay(10);
 }
 
-String sequence = "(90, 20); (180, 15); (270, 25); (0, 10)";
+String sequence = "(0, 10); (45, 5); (90, 10); (0, 5)" ;
 
 void loop() {
   executeHeadingDistanceSequence(sequence);
