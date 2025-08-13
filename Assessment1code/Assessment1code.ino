@@ -57,9 +57,9 @@ mtrn3100::Encoder encoder1(EN1A, EN1B,1400);
 mtrn3100::Encoder encoder2(EN2A, EN2B,1400);
 mtrn3100::PIDController pid(1,0.1,0.05);
 
-mtrn3100::Lidar lidar1(LIDAR1,  0x30);
-mtrn3100::Lidar lidar2(LIDAR2,  0x31);
-mtrn3100::Lidar lidar3(LIDAR3,  0x32);
+mtrn3100::Lidar leftLidar(LIDAR1,  0x30);
+mtrn3100::Lidar frontLidar(LIDAR2,  0x31);
+mtrn3100::Lidar rightLidar(LIDAR3,  0x32);
 
 IMU imuOdom;
 OledDisplay oled;
@@ -499,27 +499,42 @@ void setup() {
 
   imuOdom.begin();
 }
+
 int starttime = millis();
 
 void startLidars() {
   pinMode(LIDAR1, OUTPUT);
   pinMode(LIDAR2, OUTPUT);
   pinMode(LIDAR3, OUTPUT);
+
+  // Hold all in reset
   digitalWrite(LIDAR1, LOW);
   digitalWrite(LIDAR2, LOW);
   digitalWrite(LIDAR3, LOW);
+  delay(10);
 
+  // --- LEFT LIDAR ---
   digitalWrite(LIDAR1, HIGH);
-  lidar1.init();
-  delay(50);
+  delay(10);
+  leftLidar.init();     
+  delay(10);
+
+  // --- FRONT LIDAR ---
   digitalWrite(LIDAR2, HIGH);
-  lidar2.init();
-  delay(50);
+  delay(10);
+  frontLidar.init();
+  delay(10);
+
+  // --- RIGHT LIDAR ---
   digitalWrite(LIDAR3, HIGH);
-  lidar3.init();
+  delay(10);
+  rightLidar.init();
+  delay(10);
+
   Serial.println("LIDARs initialized");
-  delay(1000);  // Allow time for LIDARs to stabilize
 }
+
+
 
 void executeCommandSequence(String command) {
   static int stepIndex = 0;
@@ -596,24 +611,17 @@ String command = "rflfrffffrflfrflfrffffrfs";
 void loop() {
   const int detectionThreshold = 100;  // mm, adjust as needed
 
-  int distFront = lidar1.readDistanceAndTrigger(detectionThreshold);
-  int distLeft = lidar2.readDistanceAndTrigger(detectionThreshold);
-  int distRight = lidar3.readDistanceAndTrigger(detectionThreshold);
+  int distFront = frontLidar.readDistanceAndTrigger(detectionThreshold);
+  int distLeft = leftLidar.readDistanceAndTrigger(detectionThreshold);
+  int distRight = rightLidar.readDistanceAndTrigger(detectionThreshold);
 
-  bool detected = false;
-
-  if (distFront > 0 && distFront <= detectionThreshold) {
-    Serial.println("Object detected by FRONT lidar");
-    detected = true;
-  }
-  if (distLeft > 0 && distLeft <= detectionThreshold) {
-    Serial.println("Object detected by LEFT lidar");
-    detected = true;
-  }
-  if (distRight > 0 && distRight <= detectionThreshold) {
-    Serial.println("Object detected by RIGHT lidar");
-    detected = true;
-  }
+  Serial.print("Front: ");
+  Serial.print(distFront);
+  Serial.print(" mm, Left: ");
+  Serial.print(distLeft);
+  Serial.print(" mm, Right: ");
+  Serial.print(distRight);
+  Serial.println(" mm");
 
   delay(200);  // small delay to reduce serial spam
 }

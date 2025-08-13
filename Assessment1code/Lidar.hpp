@@ -13,7 +13,8 @@ public:
     Lidar(uint8_t alertXshutPin, uint8_t newAddr)
         : pin(alertXshutPin),
           i2cAddress(newAddr),
-          filteredDistance(-1) {}
+          filteredDistance(-1) {
+          }
 
     void setAddress() {
         sensor.setAddress(i2cAddress);
@@ -28,7 +29,7 @@ public:
     sensor.configureDefault();
     Serial.println("[LIDAR] Default configuration applied.");
 
-    sensor.setTimeout(250);
+    sensor.setTimeout(1000);
     Serial.println("[LIDAR] Timeout set to 250ms.");
 
     Serial.println("[LIDAR] Setting I2C address...");
@@ -44,7 +45,7 @@ public:
         Serial.print(testDist);
         Serial.println(" mm");
     }
-}
+    }
 
 
 
