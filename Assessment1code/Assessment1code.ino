@@ -151,7 +151,7 @@ bool turnToYaw(float targetYaw, int tolerance, int maxSpeed) {
   return false;
 }
 
-void moveStraightWithHeadingCorrection(float targetHeading, float distanceCM) {
+bool moveStraightWithHeadingCorrection(float targetHeading, float distanceCM) {
   encoder1.reset();
   encoder2.reset();
 
@@ -162,20 +162,23 @@ void moveStraightWithHeadingCorrection(float targetHeading, float distanceCM) {
   static float headingKi = 0.0;
   static mtrn3100::PIDController headingPID(headingKp, headingKi, headingKd);
 
-  float previousError = 0;
-  float integral = 0;
-
   unsigned long prevTime = millis();
 
   while (true) {
+    // Front collision safety check
+    int distFront = frontLidar.readDistanceAndTrigger();
+    if (distFront > 0 && distFront < 45) { // obstacle detected within 45mm
+      motor1.stop();
+      motor2.stop();
+      return false; // indicate movement interrupted by obstacle
+    }
+
     imuOdom.update();
     float currentYaw, dummy1, dummy2;
     imuOdom.getOrientation(dummy1, dummy2, currentYaw);
 
     // Calculate yaw error
     float error = targetHeading - currentYaw;
-
-    // Normalize error to [-180, 180]
     if (error > 180) error -= 360;
     else if (error < -180) error += 360;
 
@@ -187,10 +190,9 @@ void moveStraightWithHeadingCorrection(float targetHeading, float distanceCM) {
     // PID correction
     float correction = headingPID.compute(0, error, dt);
 
-    // Adjust motor speeds based on correction
+    // Adjust motor speeds
     int pwmLeft = basePWM - correction;
     int pwmRight = basePWM + correction;
-
     pwmLeft = constrain(pwmLeft, 0, 255);
     pwmRight = constrain(pwmRight, 0, 255);
 
@@ -205,7 +207,7 @@ void moveStraightWithHeadingCorrection(float targetHeading, float distanceCM) {
     if (avgCount >= targetCounts) {
       motor1.stop();
       motor2.stop();
-      break;
+      return true; // movement completed normally
     }
 
     delay(10);
