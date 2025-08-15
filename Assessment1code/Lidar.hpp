@@ -2,58 +2,76 @@
 #define LIDAR_HPP
 
 #include <Wire.h>
-#include <Adafruit_VL6180X.h>
+#include <VL6180X.h>
 
 namespace mtrn3100 {
 
 class Lidar {
 public:
-    explicit Lidar(uint8_t alertPin) : interruptPin(alertPin) {}
-    bool begin() {
-        Wire.begin();
-        pinMode(interruptPin, OUTPUT);
-        digitalWrite(interruptPin, LOW);
+    // alertXshutPin: single pin for both XSHUT and alert
+    // newAddr: new I2C address to assign to this sensor
+    Lidar(uint8_t alertXshutPin, uint8_t newAddr)
+        : pin(alertXshutPin),
+          i2cAddress(newAddr),
+          filteredDistance(-1) {
+          }
 
-        if (!sensor.begin()) {
-            Serial.println("Failed to find VL6180X sensor!");
-            return false;
-        }
-
-        Serial.println("VL6180X sensor initialized successfully.");
-        return true;
+    void setAddress() {
+        sensor.setAddress(i2cAddress);
     }
 
-    // Reads distance, triggers alertPin HIGH if below threshold, else LOW
-    int readDistanceAndTrigger(int threshold) {
-        unsigned long start = millis();
-        int distance = -1;
+   void init() {
+    Serial.println("[LIDAR] Initializing...");
 
-        while (millis() - start < 100) {  // 100 ms timeout
-            distance = sensor.readRange();
-            if (sensor.readRangeStatus() != VL6180X_ERROR_NONE) {
-                delay(1);
-                continue;
-            }
-            break; // got a valid reading
-        }
+    sensor.init();  // No return value
+    Serial.println("[LIDAR] Sensor init() called.");
 
-        if (distance >= 0 && sensor.readRangeStatus() == VL6180X_ERROR_NONE) {
-            if (distance < threshold) {
-                digitalWrite(interruptPin, HIGH);
-            } else {
-                digitalWrite(interruptPin, LOW);
-            }
-            return distance;
-        } else {
-            digitalWrite(interruptPin, LOW);
-            return -1;
-        }
+    sensor.configureDefault();
+    Serial.println("[LIDAR] Default configuration applied.");
+
+    sensor.setTimeout(1000);
+    Serial.println("[LIDAR] Timeout set to 250ms.");
+
+    Serial.println("[LIDAR] Setting I2C address...");
+    setAddress();
+    Serial.println("[LIDAR] Address set successfully.");
+
+    // Optional: test read
+    int testDist = sensor.readRangeSingleMillimeters();
+    if (sensor.timeoutOccurred()) {
+        Serial.println("[LIDAR] ERROR: Timeout during test read!");
+    } else {
+        Serial.print("[LIDAR] Test distance: ");
+        Serial.print(testDist);
+        Serial.println(" mm");
+    }
     }
 
+
+
+    int readDistanceAndTrigger() {
+      int distance = sensor.readRangeSingleMillimeters();
+
+      if (sensor.readRangeStatus() != VL6180X_ERROR_NONE) {
+          return -1; // invalid reading
+      }
+
+      // Low-pass filter (EMA)
+      const float alpha = 0.7f;
+      if (filteredDistance < 0) {
+          filteredDistance = distance;
+      } else {
+          filteredDistance = alpha * filteredDistance + (1 - alpha) * distance;
+      }
+
+      return static_cast<int>(filteredDistance);
+  }
 
 private:
-    Adafruit_VL6180X sensor;
-    uint8_t interruptPin;
+    VL6180X sensor;
+    uint8_t pin;         // shared pin for XSHUT + Alert
+    uint8_t i2cAddress;  // assigned I2C address
+    float filteredDistance;
 };
 
 } // namespace mtrn3100

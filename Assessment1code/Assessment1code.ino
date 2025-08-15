@@ -48,13 +48,23 @@ bool turnRight = false;
 bool forward = false;
 bool reverse = false;
 bool stop = true;
+// Lidar pins
+int LIDAR1 = A0;
+int LIDAR2 = A1;
+int LIDAR3 = A2;
+
 // Objects 
 mtrn3100::Motor motor1(MOT1PWM, MOT1DIR);
 mtrn3100::Motor motor2(MOT2PWM, MOT2DIR);
 mtrn3100::Encoder encoder1(EN1A, EN1B,1400);
 mtrn3100::Encoder encoder2(EN2A, EN2B,1400);
 mtrn3100::PIDController pid(1,0.1,0.05);
-mtrn3100::Lidar lidar(LIDAR);
+
+
+mtrn3100::Lidar leftLidar(LIDAR1,  0x30);
+mtrn3100::Lidar frontLidar(LIDAR2,  0x31);
+mtrn3100::Lidar rightLidar(LIDAR3,  0x32);
+
 IMU imuOdom;
 OledDisplay oled;
 // LIDAR interrupt
@@ -299,37 +309,6 @@ void TurnRight(){ setState(false,false,false,true,false); }
 void TurnLeft(){ setState(false,false,true,false,false); }
 void Halt(){ setState(false,false,false,false,true); }
 
-int task31() {
-  static bool hasMoved = false;
-  const int obstacleThreshold = 100;
-  const int tolerance = 5;
-
-  if (!hasMoved) {
-    encoder1.reset();
-    encoder2.reset();
-    hasMoved = true;
-  }
-
-  int distance = lidar.readDistanceAndTrigger(obstacleThreshold);
-
-  if (distance >= 0) {
-    Serial.print("Distance: ");
-    Serial.print(distance);
-    Serial.println(" mm");
-  }
-
-  if (distance < 0 || distance > 1000) {
-    Forward();
-    Serial.println("No object detected — moving FORWARD");
-  } else if (distance <= obstacleThreshold + 5 && distance >= obstacleThreshold - tolerance) {
-    Halt();
-    Serial.println("Object within range! STOPPED.");
-  } else if (distance > 0 && distance < obstacleThreshold - tolerance) {
-    Reverse();
-    Serial.println("REVERSE");
-  } 
-  return 0;
-}
 
 int task32() {
   imuOdom.update();
@@ -484,21 +463,47 @@ void setup() {
   Wire.begin();
   attachInterrupt(digitalPinToInterrupt(EN1A), encoder1ISR, CHANGE);
   attachInterrupt(digitalPinToInterrupt(EN2A), encoder2ISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(LIDAR), lidarISR, RISING);
+  
+  startLidars();
 
   encoder1.reset();
   encoder2.reset();
 
-  bool success = lidar.begin();
-  if (success) Serial.println("LIDAR initialized successfully.");
-  else {
-    Serial.println("LIDAR initialization failed!");
-    while (true);
-  }
-
   imuOdom.begin();
 }
 int starttime = millis();
+
+void startLidars() {
+  pinMode(LIDAR1, OUTPUT);
+  pinMode(LIDAR2, OUTPUT);
+  pinMode(LIDAR3, OUTPUT);
+
+  // Hold all in reset
+  digitalWrite(LIDAR1, LOW);
+  digitalWrite(LIDAR2, LOW);
+  digitalWrite(LIDAR3, LOW);
+  delay(10);
+
+  // --- LEFT LIDAR ---
+  digitalWrite(LIDAR1, HIGH);
+  delay(10);
+  leftLidar.init();     
+  delay(10);
+
+  // --- FRONT LIDAR ---
+  digitalWrite(LIDAR2, HIGH);
+  delay(10);
+  frontLidar.init();
+  delay(10);
+
+  // --- RIGHT LIDAR ---
+  digitalWrite(LIDAR3, HIGH);
+  delay(10);
+  rightLidar.init();
+  delay(10);
+
+  Serial.println("LIDARs initialized");
+}
 
 void executeCommandSequence(String command) {
   static int stepIndex = 0;
@@ -626,11 +631,107 @@ void executeHeadingDistanceSequence(String sequence) {
   delay(10);
 }
 
-String sequence = "(90, 20); (180, 15); (270, 25); (0, 10)";
+// Global state variables
+enum ExploreState {DECIDE, TURNING, MOVING};
+static ExploreState exploreState = DECIDE;
+static float exploreHeading = 0.0;  // in degrees
+static float moveDistanceCM = 19.0;
+static float targetHeading = 0.0;
 
-void loop() {
-  executeHeadingDistanceSequence(sequence);
+void mazeExplore() {
+    static bool actionStarted = false;  // flag to track action progress
+
+    switch (exploreState) {
+        case DECIDE: {
+            // Read LIDARs
+            int distFront = frontLidar.readDistanceAndTrigger();
+            int distLeft  = leftLidar.readDistanceAndTrigger();
+            int distRight = rightLidar.readDistanceAndTrigger();
+
+            Serial.print("Front: "); Serial.print(distFront);
+            Serial.print(" | Left: "); Serial.print(distLeft);
+            Serial.print(" | Right: "); Serial.println(distRight);
+
+            const int obstacleThresholdLow = 0;
+            const int obstacleThresholdHigh = 70;
+
+            bool frontBlocked = distFront > 0 && distFront < obstacleThresholdHigh && distFront > obstacleThresholdLow;
+            bool leftBlocked  = distLeft > 0 && distLeft < obstacleThresholdHigh && distLeft > obstacleThresholdLow;
+            bool rightBlocked = distRight > 0 && distRight < obstacleThresholdHigh && distRight > obstacleThresholdLow;
+
+            // Decide next action
+            if (!frontBlocked) {
+                exploreState = MOVING;
+            } 
+            else if (!rightBlocked) {
+                targetHeading = exploreHeading - 90.0;
+                if (targetHeading >= 360.0) targetHeading -= 360.0;
+                exploreState = TURNING;
+            } 
+            else if (!leftBlocked) {
+                targetHeading = exploreHeading + 90.0;
+                if (targetHeading < 0.0) targetHeading += 360.0;
+                exploreState = TURNING;
+            } 
+            else {
+                targetHeading = exploreHeading + 180.0;
+                if (targetHeading >= 360.0) targetHeading -= 360.0;
+                exploreState = TURNING;
+            }
+
+            actionStarted = false;  // reset action flag
+            break;
+        }
+
+        case TURNING: {
+            if (!actionStarted) {
+                Serial.print("Turning to "); Serial.println(targetHeading);
+                actionStarted = true;
+            }
+
+            // Perform the turn
+            if (turnToYaw(targetHeading)) {  // returns true when turn completed
+                exploreHeading = targetHeading;  // update heading
+
+                // Check front after turn
+                int distFront = frontLidar.readDistanceAndTrigger();
+                const int obstacleThresholdLow = 0;
+                const int obstacleThresholdHigh = 70;
+                bool frontBlocked = distFront > 0 && distFront < obstacleThresholdHigh && distFront > obstacleThresholdLow;
+
+                if (!frontBlocked) {
+                    exploreState = MOVING; // front is free → move
+                } else {
+                    exploreState = DECIDE; // front blocked → decide again
+                }
+
+                actionStarted = false;
+            }
+            break;
+        }
+
+        case MOVING: {
+            if (!actionStarted) {
+                Serial.println("Moving forward");
+                actionStarted = true;
+            }
+
+            moveStraightWithHeadingCorrection(exploreHeading, moveDistanceCM);
+
+            // Move finished, go back to decision state
+            exploreState = DECIDE;
+            actionStarted = false;
+            break;
+        }
+    }
 }
+
+
+// String sequence = "(90, 20); (180, 15); (270, 25); (0, 10)";
+// void loop() {
+//   executeHeadingDistanceSequence(sequence);
+// }
+
 
  
 // // String command = "lfrflfffflfrflfrflfffflfs";
@@ -638,3 +739,7 @@ void loop() {
 // void loop() {
 //   executeCommandSequence(command);
 // }
+
+void loop() {
+  mazeExplore();
+}
