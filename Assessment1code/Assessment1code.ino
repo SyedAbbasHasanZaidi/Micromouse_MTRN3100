@@ -19,12 +19,7 @@
 
 #define LIDAR 4
 
-int task31();
-int task32();
-int task33();
-bool turnToYaw(float targetYaw, int tolerance = 2, int speed = 30);
-
-// GLOBAL VARIABLES 
+// --- GLOBAL VARIABLES ---
 float ax_offset = 0.0;
 float ay_offset = 0.0;
 float gz_offset = 0.0;
@@ -35,539 +30,37 @@ const float wheelDiameterCM = 3.55;
 const float countsPerRev = 1400;
 const float cmPerCount = (PI * wheelDiameterCM) / countsPerRev; 
 static float targetDistanceCM = 50;
-const int targetCounts = targetDistanceCM / cmPerCount; 
-// Task 31
+
+// Task states
 volatile bool objectDetected = false;
-// Task 32
-float targetYaw = 0.0;
-bool hasTurnedInitially = false;
-bool wasLifted = false;
-//States
 bool turnLeft = false;
 bool turnRight = false;
 bool forward = false;
 bool reverse = false;
 bool stop = true;
-// Objects 
+
+// Lidar pins
+int LIDAR1 = A0;
+int LIDAR2 = A1;
+int LIDAR3 = A2;
+
+// Objects
 mtrn3100::Motor motor1(MOT1PWM, MOT1DIR);
 mtrn3100::Motor motor2(MOT2PWM, MOT2DIR);
 mtrn3100::Encoder encoder1(EN1A, EN1B,1400);
 mtrn3100::Encoder encoder2(EN2A, EN2B,1400);
 mtrn3100::PIDController pid(1,0.1,0.05);
-mtrn3100::Lidar lidar(LIDAR);
+mtrn3100::Lidar leftLidar(LIDAR1,  0x30);
+mtrn3100::Lidar frontLidar(LIDAR2,  0x31);
+mtrn3100::Lidar rightLidar(LIDAR3,  0x32);
+
 IMU imuOdom;
 OledDisplay oled;
 
-Cell maze[9][9];  // 9x9 maze grid
+// Robot position
+int robotX, robotY, heading;
 
-// LIDAR interrupt
-void lidarISR() {
-  objectDetected = true;
-}
-
-void encoder1ISR() {
-  encoder1.readEncoder();
-}
-
-void encoder2ISR() {
-  encoder2.readEncoder();
-}
-
-void encoderReset(){
-  encoder1.count = 0;
-  encoder2.count = 0;
-}
-
-void reset(){
-  objectDetected = false;
-  targetYaw = 0.0;
-  hasTurnedInitially = false;
-  wasLifted = false;
-  turnLeft = false;
-  turnRight = false;
-  forward = false;
-  reverse = false;
-  stop = true;
-}
-
-void printIMUStatus(float currentYaw, float targetYaw, float diff) {
-  Serial.print("\033[2J");  // Clear entire screen
-  Serial.print("\033[H");   // Move cursor to top-left corner
-
-  Serial.print("Current Yaw: ");
-  Serial.print(currentYaw, 2);
-  Serial.print(" | Target Yaw: ");
-  Serial.print(targetYaw, 2);
-  Serial.print(" | Diff: ");
-  Serial.println(diff, 2);
-}
-
-bool turnToYaw(float targetYaw, int tolerance, int maxSpeed) {
-  imuOdom.update();
-  float currentYaw, dummy1, dummy2;
-  imuOdom.getOrientation(dummy1, dummy2, currentYaw);
-
-  // Normalise yaw difference to [-180, 180]
-  float error = targetYaw - currentYaw;
-  if (error > 180) error -= 360;
-  else if (error < -180) error += 360;
-
-  printIMUStatus(currentYaw, targetYaw, error);
-
-  static mtrn3100::PIDController yawPID(1.2, 0.0, 0.1);
-  static unsigned long prevTime = millis();
-
-  unsigned long now = millis();
-  float dt = (now - prevTime) / 1000.0f;
-  prevTime = now;
-
-  // Use actual yaw values in PID
-  float correction = yawPID.compute(0, -error, dt);
-
-  if (abs(error) <= tolerance) {
-    motor1.stop();
-    motor2.stop();
-    yawPID.reset();
-    return true;
-  }
-
-  int pwm = constrain(abs(correction), 20, min(maxSpeed, abs(error) * 2));
-
-  if (correction > 0) {
-    motor1.forward(pwm);
-    motor2.forward(pwm);
-  } else {
-    motor1.reverse(pwm);
-    motor2.reverse(pwm);
-  }
-
-  return false;
-}
-
-void moveStraightWithHeadingCorrection(float targetHeading, float distanceCM) {
-  encoder1.reset();
-  encoder2.reset();
-
-  long targetCounts = distanceCM / cmPerCount;
-
-  static float headingKp = 2.0;  
-  static float headingKd = 0.5;
-  static float headingKi = 0.0;
-  static mtrn3100::PIDController headingPID(headingKp, headingKi, headingKd);
-
-  float previousError = 0;
-  float integral = 0;
-
-  unsigned long prevTime = millis();
-
-  while (true) {
-    imuOdom.update();
-    float currentYaw, dummy1, dummy2;
-    imuOdom.getOrientation(dummy1, dummy2, currentYaw);
-
-    // Calculate yaw error
-    float error = targetHeading - currentYaw;
-
-    // Normalize error to [-180, 180]
-    if (error > 180) error -= 360;
-    else if (error < -180) error += 360;
-
-    // Time delta
-    unsigned long now = millis();
-    float dt = (now - prevTime) / 1000.0f;
-    prevTime = now;
-
-    // PID correction
-    float correction = headingPID.compute(0, error, dt);
-
-    // Adjust motor speeds based on correction
-    int pwmLeft = basePWM - correction;
-    int pwmRight = basePWM + correction;
-
-    pwmLeft = constrain(pwmLeft, 0, 255);
-    pwmRight = constrain(pwmRight, 0, 255);
-
-    motor1.forward(pwmLeft);
-    motor2.reverse(pwmRight);
-
-    // Check if target distance reached
-    long leftCount = abs(encoder1.getCount());
-    long rightCount = abs(encoder2.getCount());
-    long avgCount = (leftCount + rightCount) / 2;
-
-    if (avgCount >= targetCounts) {
-      motor1.stop();
-      motor2.stop();
-      break;
-    }
-
-    delay(10);
-  }
-}
-
-void balanceMotorsWithPID(bool isForward) {
-  int basePWM = 100;
-  int pwmLeft = basePWM;
-  int pwmRight = basePWM;
-
-  static unsigned long prevTime = 0;
-  static long prevLeftCount = 0;
-  static long prevRightCount = 0;
-
-  unsigned long now = millis();
-  float dt = (now - prevTime) / 1000.0f;
-  if (dt < 0.02f) return;
-  prevTime = now;
-
-  long leftCount = encoder1.getCount();
-  long rightCount = -encoder2.getCount();
-
-  long deltaLeft = leftCount - prevLeftCount;
-  long deltaRight = rightCount - prevRightCount;
-
-  prevLeftCount = leftCount;
-  prevRightCount = rightCount;
-
-  float error = deltaLeft - deltaRight;
-
-  static float smoothedError = 0;
-  const float alpha = 0.1f;
-  smoothedError = alpha * error + (1 - alpha) * smoothedError;
-
-  float correction = pid.compute(0, smoothedError, dt);
-
-  if (correction > 0) {
-    pwmLeft = basePWM - abs(correction);
-    pwmRight = basePWM + abs(correction) * 0.5f;
-  } else if (correction < 0) {
-    pwmLeft = basePWM + abs(correction) * 0.5f;
-    pwmRight = basePWM - abs(correction);
-  }
-
-  pwmLeft = constrain(pwmLeft, 0, 255);
-  pwmRight = constrain(pwmRight, 0, 255);
-
-  if (isForward) {
-    motor1.forward(pwmLeft);
-    motor2.reverse(pwmRight);
-  } else {
-    motor1.reverse(pwmLeft);
-    motor2.forward(pwmRight);
-  }
-}
-
-
-// Call this function to move forward or backward a certain distance with balancing
-void moveDistance(bool isForward, float distanceCM) {
-  // Reset encoders at start
-  encoder1.reset();
-  encoder2.reset();
-
-  // Convert target distance to encoder counts
-  long targetCounts = distanceCM / cmPerCount;
-
-  while (true) {
-    // Get average encoder counts traveled (absolute values)
-    long leftCount = abs(encoder1.getCount());
-    long rightCount = abs(encoder2.getCount());
-
-    // Average counts (optional for more accurate measurement)
-    long avgCount = (leftCount + rightCount) / 2;
-
-    if (avgCount >= targetCounts) {
-      // Target reached - stop motors
-      motor1.stop();
-      motor2.stop();
-      break;
-    } else {
-      // Still need to move - balance motors with PID
-      balanceMotorsWithPID(isForward);
-    }
-
-    delay(10);  // small delay to avoid busy loop
-  }
-}
-
-void setState(bool mForward, bool mReverse, bool mTurnLeft, bool mTurnRight, bool mStop){
-  forward= mForward;
-  reverse= mReverse;
-  turnLeft = mTurnLeft;
-  turnRight = mTurnRight;
-  stop = mStop;
-}
-
-void Forward(){ setState(true,false,false,false,false); }
-void Reverse(){ setState(false,true,false,false,false); }
-void TurnRight(){ setState(false,false,false,true,false); }
-void TurnLeft(){ setState(false,false,true,false,false); }
-void Halt(){ setState(false,false,false,false,true); }
-
-int task31() {
-  static bool hasMoved = false;
-  const int obstacleThreshold = 100;
-  const int tolerance = 5;
-
-  if (!hasMoved) {
-    encoder1.reset();
-    encoder2.reset();
-    hasMoved = true;
-  }
-
-  int distance = lidar.readDistanceAndTrigger(obstacleThreshold);
-
-  if (distance >= 0) {
-    Serial.print("Distance: ");
-    Serial.print(distance);
-    Serial.println(" mm");
-  }
-
-  if (distance < 0 || distance > 1000) {
-    Forward();
-    Serial.println("No object detected — moving FORWARD");
-  } else if (distance <= obstacleThreshold + 5 && distance >= obstacleThreshold - tolerance) {
-    Halt();
-    Serial.println("Object within range! STOPPED.");
-  } else if (distance > 0 && distance < obstacleThreshold - tolerance) {
-    Reverse();
-    Serial.println("REVERSE");
-  } 
-  return 0;
-}
-
-int task32() {
-  imuOdom.update();
-  float currentYaw;
-  float ax, ay, az;
-  imuOdom.getOrientation(ax, ay, currentYaw);
-  imuOdom.getAcceleration(ax, ay, az);
-  
-
-  if (!hasTurnedInitially) {
-    if (turnToYaw(-90)) {
-      imuOdom.getOrientation(ax, ay, targetYaw);
-      hasTurnedInitially = true;
-      // Serial.print("Initial turn complete. Target yaw: ");
-      // Serial.println(targetYaw);
-      // Serial.println("Current yaw: ");
-      // Serial.println(currentYaw);
-    }
-    return 0;
-  }
-
-  float accel_mag = sqrt(ax * ax + ay * ay + az * az);
-  if (accel_mag < 0.7) {
-    wasLifted = true;
-  }
-
-  if (turnToYaw(targetYaw)) {
-    // Serial.println("Returned to original orientation.");
-    // Serial.print(" Target yaw: ");
-    // Serial.println(targetYaw);
-    // Serial.println("Current yaw: ");
-    // Serial.println(currentYaw);
-    wasLifted = false;
-  }
-  return 0;
-}
-
-int task33() {
-  static String command = "lflffrrfs";   // Command sequence: left, forward, left, forward, forward, right, right, forward, stop
-  static int currentStep = 0;
-  static bool executing = true;
-  static float initialYaw = 0.0;
-  static float targetYaw = 0.0;
-  static bool hasStoredInitialYaw = false;
-  static bool isTurning = false;
-  static int turnCount = 0;  // To keep track of how many turns made
-
-  if (!hasStoredInitialYaw) {
-    imuOdom.update();
-    float dummy1, dummy2;
-    imuOdom.getOrientation(dummy1, dummy2, initialYaw);
-    targetYaw = initialYaw;
-    hasStoredInitialYaw = true;
-    Serial.print("Stored initial yaw: ");
-    Serial.println(initialYaw);
-  }
-
-  if (executing && currentStep < command.length()) {
-    char action = command[currentStep];
-
-    switch (action) {
-      case 'f': {
-        Serial.println("Action: FORWARD");
-        float target_distance_mm = 30.0;
-        Forward();
-        if (encoder1.move(target_distance_mm, wheelDiameterCM) && encoder2.move(target_distance_mm, wheelDiameterCM)) {
-          encoder1.reset();
-          encoder2.reset();
-          currentStep++;
-          Halt();
-          Serial.println("Forward movement complete");
-        }
-        break;
-      }
-
-      case 'l': {
-        Serial.println("Action: LEFT TURN");
-
-        if (!isTurning) {
-          // Calculate new target yaw for left turn (+90 degrees from initial yaw per turn)
-          float desiredAngle = fmod(initialYaw + 90.0 * (turnCount + 1), 360.0);
-          if (desiredAngle > 180.0) desiredAngle -= 360.0;  // Normalize angle to [-180, 180]
-          targetYaw = desiredAngle;
-          Serial.print("Target Yaw for left turn: ");
-          Serial.println(targetYaw);
-          isTurning = true;
-        }
-
-        if (turnToYaw(targetYaw, 1, 30)) {  // Use your existing turnToYaw function
-          encoder1.reset();
-          encoder2.reset();
-          isTurning = false;
-          turnCount++;
-          currentStep++;
-          Serial.println("Left turn completed");
-        }
-        break;
-      }
-
-      case 'r': {
-        Serial.println("Action: RIGHT TURN");
-
-        if (!isTurning) {
-          // Calculate new target yaw for right turn (-90 degrees from initial yaw per turn)
-          float desiredAngle = fmod(initialYaw - 90.0 * (turnCount + 1), 360.0);
-          if (desiredAngle > 180.0) desiredAngle -= 360.0;  // Normalize angle to [-180, 180]
-          targetYaw = desiredAngle;
-          Serial.print("Target Yaw for right turn: ");
-          Serial.println(targetYaw);
-          isTurning = true;
-        }
-
-        if (turnToYaw(targetYaw, 1, 30)) {
-          encoder1.reset();
-          encoder2.reset();
-          isTurning = false;
-          turnCount++;
-          currentStep++;
-          Serial.println("Right turn completed");
-        }
-        break;
-      }
-
-      case 's': {
-        Serial.println("Action: STOP");
-        Halt();
-        executing = false;
-        command = "";
-        break;
-      }
-
-      default:
-        Serial.print("Unknown command: ");
-        Serial.println(action);
-        currentStep++;
-        break;
-    }
-  }
-
-  if (executing && currentStep >= command.length()) {
-    executing = false;
-    command = "";
-    Serial.println("Completed all commands");
-  }
-
-  return 0;
-}
-
-
-void setup() {
-  Serial.begin(9600);
-  Wire.begin();
-  attachInterrupt(digitalPinToInterrupt(EN1A), encoder1ISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(EN2A), encoder2ISR, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(LIDAR), lidarISR, RISING);
-
-  encoder1.reset();
-  encoder2.reset();
-
-  bool success = lidar.begin();
-  if (success) Serial.println("LIDAR initialized successfully.");
-  else {
-    Serial.println("LIDAR initialization failed!");
-    while (true);
-  }
-
-  imuOdom.begin();
-}
-int starttime = millis();
-
-void executeCommandSequence(String command) {
-  static int stepIndex = 0;
-  static bool actionInProgress = false;
-  static float currentHeading = 0.0;
-
-  if (stepIndex >= command.length()) {
-    motor1.stop();
-    motor2.stop();
-    return;  // Sequence complete
-  }
-
-  char action = command.charAt(stepIndex);
-
-  switch (action) {
-    case 'f': {
-      if (!actionInProgress) {
-        moveStraightWithHeadingCorrection(currentHeading, 19.0);
-        actionInProgress = true;
-      } else {
-        stepIndex++;
-        actionInProgress = false;
-      }
-      break;
-    }
-
-    case 'l': {
-      float targetHeading = currentHeading + 90.0;
-      if (targetHeading >= 360.0) targetHeading -= 360.0;
-
-      if (turnToYaw(targetHeading, 2, 100)) {
-        currentHeading = targetHeading;
-        stepIndex++;
-      }
-      break;
-    }
-
-    case 'r': {
-      float targetHeading = currentHeading - 90.0;
-      if (targetHeading < 0.0) targetHeading += 360.0;
-
-      if (turnToYaw(targetHeading, 2, 100)) {
-        currentHeading = targetHeading;
-        stepIndex++;
-      }
-      break;
-    }
-
-    case 's': {
-      motor1.stop();
-      motor2.stop();
-      stepIndex = command.length();  // End sequence
-      break;
-    }
-
-    default: {
-      Serial.print("Unknown command: ");
-      Serial.println(action);
-      stepIndex++;
-      break;
-    }
-  }
-
-  delay(10);  // Small delay for stability
-}
-
+// Maze cell struct
 struct Cell {
     bool wallNorth;
     bool wallEast;
@@ -578,125 +71,189 @@ struct Cell {
 
 Cell maze[9][9]; // 9x9 maze
 
-// Robot position and heading (0=West, 90=North, 180=East, 270=South)
-int robotX, robotY, heading;
+// --- HELPER FUNCTIONS ---
+void lidarISR() { objectDetected = true; }
 
-// Movement black-box functions
-void rotateLeft(); //TODO
-void rotateRight(); //TODO 
-void moveForward(); //TODO
+void encoder1ISR() { encoder1.readEncoder(); }
+void encoder2ISR() { encoder2.readEncoder(); }
 
-// Helper: normalize heading
-int normalizeHeading(int h) {
-    if (h < 0) h += 360;
-    if (h >= 360) h -= 360;
-    return h;
+void encoderReset() { encoder1.count = 0; encoder2.count = 0; }
+
+int normalizeHeading(int h) { 
+    if (h < 0) h += 360; 
+    if (h >= 360) h -= 360; 
+    return h; 
 }
 
-// Read walls and update current cell
-void updateWalls() {
-    int leftDist  = lidarLeft.readDistanceAndTrigger(100);
-    int rightDist = lidarRight.readDistanceAndTrigger(100);
-    int frontDist = lidarFront.readDistanceAndTrigger(100);
+void pauseBetweenMoves() {
+    motor1.stop();
+    motor2.stop();
+    delay(200); // 200 ms pause between actions
+}
 
-    Cell &current = maze[robotX][robotY];
-    if (heading == 90) { // North
-        current.wallNorth = (frontDist != -1);
-        current.wallEast  = (rightDist != -1);
-        current.wallWest  = (leftDist  != -1);
-    } else if (heading == 180) { // East
-        current.wallEast  = (frontDist != -1);
-        current.wallSouth = (rightDist != -1);
-        current.wallNorth = (leftDist  != -1);
-    } else if (heading == 270) { // South
-        current.wallSouth = (frontDist != -1);
-        current.wallWest  = (rightDist != -1);
-        current.wallEast  = (leftDist  != -1);
-    } else if (heading == 0) { // West
-        current.wallWest  = (frontDist != -1);
-        current.wallNorth = (rightDist != -1);
-        current.wallSouth = (leftDist  != -1);
+// --- MOVEMENT FUNCTIONS ---
+bool turnToYaw(float targetYaw, int tolerance=2, int maxSpeed=30) {
+    imuOdom.update();
+    float currentYaw, dummy1, dummy2;
+    imuOdom.getOrientation(dummy1, dummy2, currentYaw);
+
+    float error = targetYaw - currentYaw;
+    if (error > 180) error -= 360;
+    else if (error < -180) error += 360;
+
+    static mtrn3100::PIDController yawPID(1.2, 0.0, 0.1);
+    static unsigned long prevTime = millis();
+
+    unsigned long now = millis();
+    float dt = (now - prevTime) / 1000.0f;
+    prevTime = now;
+
+    float correction = yawPID.compute(0, -error, dt);
+
+    if (abs(error) <= tolerance) {
+        motor1.stop();
+        motor2.stop();
+        yawPID.reset();
+        return true;
     }
-}
 
-// Check if a cell in a given direction is unexplored and not blocked
-bool canGoDirection(int dir) {
-    dir = normalizeHeading(dir);
-    Cell &c = maze[robotX][robotY];
-    if (dir == 90 && !c.wallNorth && !maze[robotX][robotY+1].visited) return true;
-    if (dir == 180 && !c.wallEast  && !maze[robotX+1][robotY].visited) return true;
-    if (dir == 270 && !c.wallSouth && !maze[robotX][robotY-1].visited) return true;
-    if (dir == 0 && !c.wallWest    && !maze[robotX-1][robotY].visited) return true;
+    int pwm = constrain(abs(correction), 20, min(maxSpeed, abs(error) * 2));
+    if (correction > 0) { motor1.forward(pwm); motor2.forward(pwm); }
+    else { motor1.reverse(pwm); motor2.reverse(pwm); }
+
     return false;
 }
 
-// Move robot forward one cell in the heading direction
+void moveStraightWithHeadingCorrection(float targetHeading, float distanceCM) {
+    encoder1.reset();
+    encoder2.reset();
+    long targetCounts = distanceCM / cmPerCount;
+
+    static mtrn3100::PIDController headingPID(2.0, 0.0, 0.5);
+    unsigned long prevTime = millis();
+
+    while (true) {
+        imuOdom.update();
+        float currentYaw, dummy1, dummy2;
+        imuOdom.getOrientation(dummy1, dummy2, currentYaw);
+
+        float error = targetHeading - currentYaw;
+        if (error > 180) error -= 360;
+        else if (error < -180) error += 360;
+
+        unsigned long now = millis();
+        float dt = (now - prevTime) / 1000.0f;
+        prevTime = now;
+
+        float correction = headingPID.compute(0, error, dt);
+        int pwmLeft = basePWM - correction;
+        int pwmRight = basePWM + correction;
+
+        pwmLeft = constrain(pwmLeft, 0, 255);
+        pwmRight = constrain(pwmRight, 0, 255);
+
+        motor1.forward(pwmLeft);
+        motor2.reverse(pwmRight);
+
+        long avgCount = (abs(encoder1.getCount()) + abs(encoder2.getCount())) / 2;
+        if (avgCount >= targetCounts) { motor1.stop(); motor2.stop(); break; }
+        delay(10);
+    }
+}
+
+// Movement wrappers with pauses
+void moveForward() {
+    pauseBetweenMoves();
+    moveStraightWithHeadingCorrection(heading, 19.0);
+    pauseBetweenMoves();
+}
+
+void rotateLeft() {
+    pauseBetweenMoves();
+    turnToYaw(heading - 90, 2, 100);
+    heading = normalizeHeading(heading - 90);
+    pauseBetweenMoves();
+}
+
+void rotateRight() {
+    pauseBetweenMoves();
+    turnToYaw(heading + 90, 2, 100);
+    heading = normalizeHeading(heading + 90);
+    pauseBetweenMoves();
+}
+
+// --- MAZE LOGIC ---
+void updateWalls() {
+    int leftDist  = leftLidar.readDistanceAndTrigger();
+    int rightDist = rightLidar.readDistanceAndTrigger();
+    int frontDist = frontLidar.readDistanceAndTrigger();
+    Cell &current = maze[robotX][robotY];
+
+    if (heading == 90) { current.wallNorth = (frontDist!=-1); current.wallEast  = (rightDist!=-1); current.wallWest  = (leftDist!=-1); }
+    else if (heading == 180) { current.wallEast  = (frontDist!=-1); current.wallSouth = (rightDist!=-1); current.wallNorth = (leftDist!=-1); }
+    else if (heading == 270) { current.wallSouth = (frontDist!=-1); current.wallWest  = (rightDist!=-1); current.wallEast  = (leftDist!=-1); }
+    else if (heading == 0) { current.wallWest  = (frontDist!=-1); current.wallNorth = (rightDist!=-1); current.wallSouth = (leftDist!=-1); }
+}
+
+bool canGoDirection(int dir) {
+    dir = normalizeHeading(dir);
+    Cell &c = maze[robotX][robotY];
+    if (dir==90 && !c.wallNorth && robotY>0 && !maze[robotX][robotY-1].visited) return true;
+    if (dir==180 && !c.wallEast && robotX<8 && !maze[robotX+1][robotY].visited) return true;
+    if (dir==270 && !c.wallSouth && robotY<8 && !maze[robotX][robotY+1].visited) return true;
+    if (dir==0 && !c.wallWest && robotX>0 && !maze[robotX-1][robotY].visited) return true;
+    return false;
+}
+
 void stepForward() {
-    if (heading == 90) robotY++;
-    else if (heading == 180) robotX++;
-    else if (heading == 270) robotY--;
-    else if (heading == 0) robotX--;
+    if (heading == 90) robotY--;
+    else if (heading == 180) robotX--;
+    else if (heading == 270) robotY++;
+    else if (heading == 0) robotX++;
     moveForward();
 }
 
-// Main exploration
 void maze_exploration(int startX, int startY, int startHeading) {
-    // Initialize maze
-    for (int x = 0; x < 9; x++) {
-        for (int y = 0; y < 9; y++) {
-            maze[x][y] = {false, false, false, false, false};
-        }
-    }
+    for(int x=0;x<9;x++) for(int y=0;y<9;y++) maze[x][y] = {false,false,false,false,false};
+    robotX=startX; robotY=startY; heading=startHeading;
 
-    robotX = startX;
-    robotY = startY;
-    heading = startHeading;
-
-    bool explorationDone = false;
-
-    while (!explorationDone) {
-        maze[robotX][robotY].visited = true;
+    bool explorationDone=false;
+    while(!explorationDone){
+        maze[robotX][robotY].visited=true;
         updateWalls();
 
-        // Try directions in priority: left, forward, right, backtrack
-        if (canGoDirection(heading - 90)) {
-            rotateLeft();
-            heading = normalizeHeading(heading - 90);
-            stepForward();
-        }
-        else if (canGoDirection(heading)) {
-            stepForward();
-        }
-        else if (canGoDirection(heading + 90)) {
-            rotateRight();
-            heading = normalizeHeading(heading + 90);
-            stepForward();
-        }
-        else {
-            // Backtrack: turn around and move
-            rotateRight();
-            rotateRight();
-            heading = normalizeHeading(heading + 180);
-            stepForward();
-        }
+        if(canGoDirection(heading-90)) { rotateLeft(); stepForward(); }
+        else if(canGoDirection(heading)) { stepForward(); }
+        else if(canGoDirection(heading+90)) { rotateRight(); stepForward(); }
+        else { rotateRight(); rotateRight(); stepForward(); }
 
-        // Check if all cells visited
         explorationDone = true;
-        for (int x = 0; x < 9; x++) {
-            for (int y = 0; y < 9; y++) {
-                if (!maze[x][y].visited) {
-                    explorationDone = false;
-                    break;
-                }
-            }
-            if (!explorationDone) break;
-        }
+        for(int x=0;x<9;x++){for(int y=0;y<9;y++){if(!maze[x][y].visited){explorationDone=false;break;}} if(!explorationDone) break;}
     }
 }
 
+// --- SETUP AND LOOP ---
+void startLidars() {
+    pinMode(LIDAR1, OUTPUT); pinMode(LIDAR2, OUTPUT); pinMode(LIDAR3, OUTPUT);
+    digitalWrite(LIDAR1, LOW); digitalWrite(LIDAR2, LOW); digitalWrite(LIDAR3, LOW); delay(10);
+    digitalWrite(LIDAR1,HIGH); delay(10); leftLidar.init(); delay(10);
+    digitalWrite(LIDAR2,HIGH); delay(10); frontLidar.init(); delay(10);
+    digitalWrite(LIDAR3,HIGH); delay(10); rightLidar.init(); delay(10);
+    Serial.println("LIDARs initialized");
+}
 
-// String command = "lfrflfffflfrflfrflfffflfs";
-String command = "rflfrffffrflfrflfrffffrfs";
+void setup() {
+    Serial.begin(9600);
+    Wire.begin();
+    attachInterrupt(digitalPinToInterrupt(EN1A), encoder1ISR, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(EN2A), encoder2ISR, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(LIDAR), lidarISR, RISING);
+
+    encoder1.reset(); encoder2.reset();
+    startLidars();
+    imuOdom.begin();
+}
+
 void loop() {
-  executeCommandSequence(command);
+    maze_exploration(2, 0, 90); // Start at (2,0) facing North
 }
