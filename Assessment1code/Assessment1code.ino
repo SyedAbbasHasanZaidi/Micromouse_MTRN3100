@@ -97,6 +97,68 @@ void reset(){
   stop = true;
 }
 
+// ---- Wall alignment helper ----
+// Returns a small delta-heading (degrees) that nudges the robot away from walls.
+// +delta means steer LEFT, -delta means steer RIGHT.
+//
+// Tuning knobs:
+//  - desiredOffsetMM: desired gap to a single visible wall
+//  - kCenter, kSingle: deg per mm (proportional gains)
+//  - deltaLimitDeg: saturates max one-loop correction to avoid jerks
+float computeWallAlignDeltaDeg() {
+  // Read side distances (assume units = mm; -1 or 0 = invalid/no return)
+  int dl = leftLidar.readDistanceAndTrigger();
+  int dr = rightLidar.readDistanceAndTrigger();
+
+  const int desiredOffsetMM = 25;   // keep ~25 mm from a single wall
+  const int tolMM = 7;              // deadband
+  const float kCenter = 0.08f;      // deg per mm when both walls seen
+  const float kSingle = 0.10f;      // deg per mm when only one wall seen
+  const float deltaLimitDeg = 6.0f; // saturate per-loop change
+
+  float delta = 0.0f;
+
+  bool leftValid  = (dl > 0);
+  bool rightValid = (dr > 0);
+
+  if (leftValid && rightValid) {
+    // Centering: positive (dl - dr) means left is farther → steer LEFT
+    float err = (float)dl - (float)dr;
+    if (fabs(err) > tolMM) {
+      delta = kCenter * err;  // +delta => steer LEFT
+    }
+  } else if (leftValid && !rightValid) {
+    // Single-wall (left): err > 0 -> too far from left → steer RIGHT (negative)
+    float err = (float)dl - (float)desiredOffsetMM;
+    if (fabs(err) > tolMM) {
+      delta = -kSingle * err; // +err -> -delta (steer RIGHT), -err -> +delta (steer LEFT)
+    }
+  } else if (rightValid && !leftValid) {
+    // Single-wall (right): err > 0 -> too far from right → steer LEFT (positive)
+    float err = (float)dr - (float)desiredOffsetMM;
+    if (fabs(err) > tolMM) {
+      delta = +kSingle * err; // +err -> +delta (steer LEFT), -err -> -delta (steer RIGHT)
+    }
+  } else {
+    // No walls visible → no LIDAR-based correction
+    delta = 0.0f;
+  }
+
+  // Saturate to avoid sudden jerks
+  if (delta >  deltaLimitDeg) delta =  deltaLimitDeg;
+  if (delta < -deltaLimitDeg) delta = -deltaLimitDeg;
+
+  return delta;
+}
+
+// Utility to wrap any angle into [0,360)
+static inline float wrap360(float a) {
+  while (a >= 360.0f) a -= 360.0f;
+  while (a <    0.0f) a += 360.0f;
+  return a;
+}
+
+
 void printIMUStatus(float currentYaw, float targetYaw, float diff) {
   Serial.print("\033[2J");  // Clear entire screen
   Serial.print("\033[H");   // Move cursor to top-left corner
@@ -157,49 +219,65 @@ bool moveStraightWithHeadingCorrection(float targetHeading, float distanceCM) {
 
   long targetCounts = distanceCM / cmPerCount;
 
-  static float headingKp = 2.0;  
+  static float headingKp = 1.0;  
   static float headingKd = 0.5;
   static float headingKi = 0.0;
   static mtrn3100::PIDController headingPID(headingKp, headingKi, headingKd);
 
   unsigned long prevTime = millis();
 
+  // We'll adjust this *locally* during the motion so you keep your global heading clean.
+  float headingCmd = wrap360(targetHeading);
+
   while (true) {
-    // Front collision safety check
+    // --- Safety checks ---
     int distFront = frontLidar.readDistanceAndTrigger();
-    if (distFront > 0 && distFront < 45) { // obstacle detected within 45mm
+    if (distFront > 0 && distFront < 45) { // obstacle ahead (mm)
       motor1.stop();
       motor2.stop();
-      return false; // indicate movement interrupted by obstacle
+      return false; // interrupted by obstacle
     }
 
+    // Side proximity hard-stop to prevent scraping (optional but recommended)
+    int dl = leftLidar.readDistanceAndTrigger();
+    int dr = rightLidar.readDistanceAndTrigger();
+    if ((dl > 0 && dl < 18) || (dr > 0 && dr < 18)) { // too close to side wall (mm)
+      motor1.stop();
+      motor2.stop();
+      return false; // interrupted by side proximity
+    }
+
+    // --- LIDAR-based wall alignment: update heading command continuously ---
+    float deltaHeading = computeWallAlignDeltaDeg();
+    headingCmd = wrap360(headingCmd + deltaHeading);
+
+    // --- IMU heading control ---
     imuOdom.update();
     float currentYaw, dummy1, dummy2;
     imuOdom.getOrientation(dummy1, dummy2, currentYaw);
 
-    // Calculate yaw error
-    float error = targetHeading - currentYaw;
+    float error = headingCmd - currentYaw;
     if (error > 180) error -= 360;
     else if (error < -180) error += 360;
 
-    // Time delta
     unsigned long now = millis();
     float dt = (now - prevTime) / 1000.0f;
     prevTime = now;
 
-    // PID correction
+    // PID correction (IMU)
     float correction = headingPID.compute(0, error, dt);
 
-    // Adjust motor speeds
-    int pwmLeft = basePWM - correction;
+    // Mix into wheel speeds
+    int pwmLeft  = basePWM - correction;
     int pwmRight = basePWM + correction;
-    pwmLeft = constrain(pwmLeft, 0, 255);
+    pwmLeft  = constrain(pwmLeft,  0, 255);
     pwmRight = constrain(pwmRight, 0, 255);
 
+    // NOTE: your robot wiring uses motor1.forward + motor2.reverse for forward motion
     motor1.forward(pwmLeft);
     motor2.reverse(pwmRight);
 
-    // Check if target distance reached
+    // Distance check
     long leftCount = abs(encoder1.getCount());
     long rightCount = abs(encoder2.getCount());
     long avgCount = (leftCount + rightCount) / 2;
@@ -207,7 +285,7 @@ bool moveStraightWithHeadingCorrection(float targetHeading, float distanceCM) {
     if (avgCount >= targetCounts) {
       motor1.stop();
       motor2.stop();
-      return true; // movement completed normally
+      return true; // completed normally
     }
 
     delay(10);
@@ -714,10 +792,59 @@ void mazeExplore() {
 
         case MOVING: {
             if (!actionStarted) {
-                Serial.println("Moving forward");
+                Serial.println("Moving forward with wall alignment");
                 actionStarted = true;
             }
 
+            static float distLeftPrev = 0;
+            static float distRightPrev = 0;
+            static unsigned long lastCorrectionTime = 0;
+
+            // Read side distances
+            int distLeftRaw  = leftLidar.readDistanceAndTrigger();
+            int distRightRaw = rightLidar.readDistanceAndTrigger();
+
+            // Apply moving average / low-pass filter
+            const float alpha = 0.3;
+            float distLeft  = alpha * distLeftRaw  + (1 - alpha) * distLeftPrev;
+            float distRight = alpha * distRightRaw + (1 - alpha) * distRightPrev;
+            distLeftPrev  = distLeft;
+            distRightPrev = distRight;
+
+            // Only apply correction every 1 second
+            unsigned long now = millis();
+            if (now - lastCorrectionTime > 1000) {
+                lastCorrectionTime = now;
+
+                // Alignment settings
+                const float desiredOffset = 25.0; // mm from single wall
+                const float centerTolerance = 7.0; // mm tolerance
+                const float headingAdjustStep = 0.5; // degrees per correction
+
+                // Case 1: Both walls visible → center alignment
+                if (distLeft > 0 && distRight > 0) {
+                    float centerError = distLeft - distRight; // positive → closer to right wall
+                    if (fabs(centerError) > centerTolerance) {
+                        exploreHeading += (centerError > 0 ? headingAdjustStep : -headingAdjustStep);
+                    }
+                }
+                // Case 2: Only left wall visible → keep fixed offset
+                else if (distLeft > 0 && distRight <= 0) {
+                    float error = distLeft - desiredOffset;
+                    if (fabs(error) > centerTolerance) {
+                        exploreHeading += (error < 0 ? headingAdjustStep : -headingAdjustStep); // corrected sign
+                    }
+                }
+                // Case 3: Only right wall visible → keep fixed offset
+                else if (distRight > 0 && distLeft <= 0) {
+                    float error = distRight - desiredOffset;
+                    if (fabs(error) > centerTolerance) {
+                        exploreHeading += (error > 0 ? -headingAdjustStep : headingAdjustStep); // corrected sign
+                    }
+                }
+            }
+
+            // Move straight using corrected heading
             moveStraightWithHeadingCorrection(exploreHeading, moveDistanceCM);
 
             // Move finished, go back to decision state
@@ -725,6 +852,8 @@ void mazeExplore() {
             actionStarted = false;
             break;
         }
+
+
     }
 }
 
