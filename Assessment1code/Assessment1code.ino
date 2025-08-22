@@ -28,7 +28,7 @@ bool turnToYaw(float targetYaw, int tolerance = 2, int speed = 30);
 float ax_offset = 0.0;
 float ay_offset = 0.0;
 float gz_offset = 0.0;
-int basePWM = 100;
+int basePWM = 150;
 int leftPWM = basePWM;
 int rightPWM = basePWM;
 const float wheelDiameterCM = 3.55;
@@ -571,7 +571,7 @@ struct Step {
 };
 
 // Adjust to your maximum expected steps
-const int MAX_STEPS = 10;
+const int MAX_STEPS = 20;
 static Step steps[MAX_STEPS];
 static int stepCount = 0;
 
@@ -607,6 +607,7 @@ void executeHeadingDistanceSequence(String sequence) {
   float distance      = steps[stepIndex].distance;
 
   switch (actionInProgress) {
+    
     case false: {
       if (turnToYaw(targetHeading, 2, 100)) {
         currentHeading = targetHeading;
@@ -622,19 +623,16 @@ void executeHeadingDistanceSequence(String sequence) {
       break;
     }
   }
-
   delay(10);
 }
 
-String sequence = "(0, 10); (45, 5); (90, 10); (0, 5)" ;
+// String sequence = "(90, 74); (180, 32); (233, 53); (180, 95); (90, 42); (0, 21); (90, 21); (0, 95); (90, 21); (180, 74)";
+// void loop() {
+//   executeHeadingDistanceSequence(sequence);
+// }
 
-void loop() {
-  executeHeadingDistanceSequence(sequence);
-}
-
- 
-// // String command = "lfrflfffflfrflfrflfffflfs";
-// String command = "rflfrffffrflfrflfrffffrfs";
+// // // String command = "lfrflfffflfrflfrflfffflfs";
+// String command = "fffffflfffffflfrflflfrfrflfflfrfs";
 // void loop() {
 //   executeCommandSequence(command);
 // }
